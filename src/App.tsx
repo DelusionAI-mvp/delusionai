@@ -663,7 +663,7 @@ const sendWelcomeEmailWithEmailJS = async (userEmail: string, userName: string) 
   }
 
   try {
-    console.log(`Sending welcome email via EmailJS to ${userEmail}...`);
+    console.log("Sending welcome email to:", userEmail, "Name:", userName);
     await emailjs.send(
       serviceId,
       templateId,
@@ -673,10 +673,10 @@ const sendWelcomeEmailWithEmailJS = async (userEmail: string, userName: string) 
       },
       publicKey
     );
-    console.log("Welcome email sent successfully via EmailJS!");
+    console.log("Email sent successfully!");
     return true;
-  } catch (error) {
-    console.error("Error sending welcome email with EmailJS:", error);
+  } catch (emailErr: any) {
+    console.error("EmailJS Error:", emailErr?.text || emailErr?.message || emailErr);
     return false;
   }
 };
