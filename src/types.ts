@@ -1,4 +1,4 @@
-export interface EmotionalProfile {
+ export interface EmotionalProfile {
   moodBaseline: number;
   moodKeywords: string[];
   communicationStyle: string;
@@ -46,6 +46,7 @@ export interface UserProfile {
   currentSituation?: string[];
   whyJoined?: string[];
   personality?: string[];
+  welcomeEmailSent?: boolean;
   activityMetrics?: {
     totalMayaTime: number; // in minutes
     totalPeerTime: number; // in minutes
