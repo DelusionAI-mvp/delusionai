@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+ import React, { useState } from 'react';
 import { 
   signInWithPopup, 
   signInWithEmailAndPassword, 
@@ -32,9 +32,11 @@ export default function AuthPage() {
       navigate({ to: '/dashboard' });
     } catch (err: any) {
       console.error("Google Sign-In Error:", err);
-      const msg = err.name || err.message || "";
+      const msg = err.code || err.message || "";
       if (msg.includes("popup-closed-by-user")) {
         setError("Sign-in window was closed.");
+      } else if (msg.includes("popup-blocked")) {
+        setError("Popup was blocked by your browser because this app is loaded inside an iframe preview. Please open this application in a new browser tab (icon in top-right), or connect using the Email/Password option below!");
       } else {
         setError(`Authentication unsuccessful: ${err.message || 'Security validation restricted'}.`);
       }
