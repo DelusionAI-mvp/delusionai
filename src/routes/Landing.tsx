@@ -81,7 +81,7 @@ export default function LandingPage() {
               onClick={() => navigate({ to: '/auth' })}
               className="btn-primary w-full sm:w-auto px-12 py-5 text-xs sm:text-sm font-semibold uppercase tracking-[0.2em] relative group overflow-hidden"
             >
-              <span className="relative z-10">Get Started</span>
+              <span className="relative z-10">Join Waitlist</span>
                <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
             </button>
           </div>
