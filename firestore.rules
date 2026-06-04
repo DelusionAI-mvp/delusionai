@@ -1,0 +1,109 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ---- HELPERS ----
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() >= 5 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+
+    function isVerified() {
+      // In this environment, we might not always have verified email, 
+      // but let's check it if we want to be strict.
+      // For now, let's stick to isSignedIn() for general access.
+      return isSignedIn();
+    }
+
+    // ---- VALIDATION HELPERS ----
+    function isValidUser(data) {
+      return data.uid is string && (data.uid.size() > 0) &&
+             data.email is string && (data.email.size() > 0);
+    }
+
+    function isValidConversation(data) {
+      return data.userId is string && data.messages is list && data.messages.size() <= 1000;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // ---- USERS ----
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && request.auth.uid == userId && isValidUser(incoming());
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /users/{userId}/notifications/{notificationId} {
+      allow read, update, delete: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn();
+    }
+
+    // ---- CONNECTIONS ----
+    match /connections/{connectionId} {
+      allow get: if isSignedIn() && (request.auth.uid in resource.data.users);
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.users);
+      
+      allow create: if isSignedIn() &&
+        incoming().initiatorId == request.auth.uid &&
+        incoming().users.size() == 2 &&
+        request.auth.uid in incoming().users &&
+        (incoming().status == 'pending' || incoming().status == 'accepted');
+        
+      allow update: if isSignedIn() && (request.auth.uid in existing().users) && (
+        (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) && 
+         existing().receiverId == request.auth.uid &&
+          incoming().status in ['accepted', 'rejected', 'pending']) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['removedBy', 'updatedAt'])) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['updatedAt']))
+      );
+      
+      allow delete: if isSignedIn() && (request.auth.uid in existing().users);
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && (request.auth.uid in get(/databases/$(database)/documents/connections/$(connectionId)).data.users);
+        allow create: if isSignedIn() && (request.auth.uid in get(/databases/$(database)/documents/connections/$(connectionId)).data.users) &&
+          incoming().senderId == request.auth.uid &&
+          incoming().text is string && incoming().text.size() <= 1000;
+        allow update: if isSignedIn() &&
+          (request.auth.uid in get(/databases/$(database)/documents/connections/$(connectionId)).data.users) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status']);
+      }
+    }
+
+    // ---- MAYA CONVERSATIONS ----
+    match /conversations_maya/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn() && request.auth.uid == userId && isValidConversation(incoming()) && incoming().userId == userId;
+      allow update: if isSignedIn() && request.auth.uid == userId && (incoming().messages is list) && (incoming().messages.size() <= 1000);
+      allow delete: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // ---- WAITLIST ----
+    match /waitlist/{id} {
+      allow create: if true;
+      allow read: if false;
+    }
+  }
+}

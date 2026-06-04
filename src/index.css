@@ -1,0 +1,267 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&family=Outfit:wght@200;300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", sans-serif;
+  --font-display: "Cormorant+Garamond", "Cormorant Garamond", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-brand-primary: #8B1A2F; /* Bordeaux Velvet */
+  --color-brand-secondary: #B42D46;
+  --color-brand-accent: #DAA520; /* Gold accent for luxury feel */
+  
+  --color-bg-base: #F5EFE6; /* Ivory Whisper */
+  --color-bg-card: #FFFFFF; 
+  --color-text-base: #2B050C;
+  --color-text-muted: #625052;
+  --color-border-subtle: #F3E5D5;
+}
+
+@layer base {
+  body {
+    @apply font-sans text-text-base bg-bg-base antialiased selection:bg-brand-primary selection:text-white leading-relaxed;
+  }
+
+  p {
+    @apply text-[17px] sm:text-[19px] font-semibold tracking-normal text-text-base leading-relaxed;
+  }
+
+  .font-light {
+    font-weight: 600 !important;
+  }
+}
+
+@layer components {
+  .cred-elevation {
+    @apply bg-bg-card border-2 border-brand-primary/8 shadow-[12px_12px_24px_rgba(128,0,32,0.04)] rounded-[2rem] md:rounded-[3rem] backdrop-blur-sm transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:border-brand-primary/20 hover:shadow-[16px_16px_36px_rgba(128,0,32,0.08)] hover:-translate-y-1;
+  }
+  
+  .cred-inset {
+    @apply bg-[#FAF7F2] border-2 border-brand-primary/5 shadow-[inset_4px_4px_12px_rgba(0,0,0,0.03)] rounded-[2rem] md:rounded-[3rem];
+  }
+
+  /* Consistent layout systems across all pages */
+  .global-container {
+    @apply w-full max-w-7xl mx-auto px-6 sm:px-8 md:px-12 lg:px-16;
+  }
+
+  .page-base {
+    @apply flex-1 bg-transparent text-text-base w-full pb-12 md:pb-16;
+  }
+
+  .section-gap {
+    @apply space-y-8 sm:space-y-12 md:space-y-16;
+  }
+
+  .grid-balanced {
+    @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-8 md:gap-12 lg:gap-16 items-start;
+  }
+
+  .section-header {
+    @apply flex items-center gap-4 md:gap-6 mb-8 md:mb-12 w-full;
+  }
+
+  .section-title {
+    @apply text-[11.5px] sm:text-xs font-black uppercase tracking-[0.4em] text-text-muted italic flex items-center gap-2 md:gap-3 flex-shrink-0;
+  }
+
+  .section-divider {
+    @apply flex-grow border-t-2 border-brand-primary/5;
+  }
+
+  .btn-primary {
+    @apply px-10 py-5 bg-brand-primary text-white border-2 border-brand-primary hover:shadow-[0_12px_24px_-10px_rgba(128,0,32,0.3)] hover:-translate-y-1 rounded-full font-black uppercase tracking-[0.2em] text-[11.5px] sm:text-xs transition-all duration-300 ease-out active:scale-95 disabled:opacity-50 relative overflow-hidden;
+  }
+  .btn-primary::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-color: rgba(255, 255, 255, 0);
+    transition: background-color 0.3s ease;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .btn-primary:hover::after {
+    background-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .btn-secondary {
+    @apply px-10 py-5 bg-transparent border-2 border-brand-primary text-brand-primary hover:bg-brand-primary hover:text-white hover:-translate-y-1 hover:shadow-[0_8px_20px_-10px_rgba(128,0,32,0.15)] rounded-full font-black uppercase tracking-[0.2em] text-[11.5px] sm:text-xs transition-all duration-300 ease-out active:scale-95 relative overflow-hidden;
+  }
+  .btn-secondary::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-color: rgba(255, 255, 255, 0);
+    transition: background-color 0.3s ease;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .btn-secondary:hover::after {
+    background-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .input-base {
+    @apply w-full p-6 bg-[#FAF7F2] border-2 border-brand-primary/10 focus:border-brand-primary focus:bg-white focus:shadow-[0_0_15px_rgba(128,0,32,0.03)] outline-none transition-all duration-300 rounded-full text-text-base placeholder:text-zinc-400;
+  }
+
+  /* Specially-requested Get Started - Framer Slide-In Inspired */
+  .btn-get-started {
+    position: relative;
+    padding: 0.85rem 2rem;
+    background-color: #5A1E2D; /* Bordeaux Velvet */
+    color: #F8F4EE; /* Ivory Whisper */
+    border-radius: 9999px; /* Rounded corners */
+    font-family: var(--font-sans);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    font-size: 0.75rem;
+    z-index: 10;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.65rem;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 4px 12px rgba(90, 30, 45, 0.15);
+    border: 1px solid rgba(248, 244, 238, 0.1);
+  }
+
+  .btn-get-started::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #F8F4EE; /* Ivory Whisper slide-in */
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: -1;
+  }
+
+  .btn-get-started:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px rgba(90, 30, 45, 0.2);
+    color: #9F7E39; /* Luxurious Deep Gold */
+    border-color: rgba(90, 30, 45, 0.15);
+  }
+
+  .btn-get-started:hover::before {
+    transform: scaleX(1);
+  }
+
+  .btn-get-started:active {
+    transform: translateY(1px);
+    scale: 0.98;
+  }
+
+  .btn-get-started svg {
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .btn-get-started:hover svg {
+    transform: translateX(5px);
+  }
+
+  /* GlassyButton Navigation Aesthetic */
+  .btn-glassy {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1.15rem;
+    border-radius: 9999px;
+    font-family: var(--font-sans);
+    font-weight: 700;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    
+    /* Frosted glassmorphism: translucent background + blur + translucent border */
+    background: rgba(248, 244, 238, 0.55); /* Translucent Ivory Whisper */
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: #5A1E2D; /* Bordeaux Velvet text */
+    border: 1px solid rgba(90, 30, 45, 0.15);
+    box-shadow: 
+      0 4px 15px rgba(90, 30, 45, 0.02),
+      inset 0 10px 20px rgba(255, 255, 255, 0.4),
+      inset 0 1px 0px rgba(255, 255, 255, 0.7);
+  }
+
+  .btn-glassy:hover {
+    background: rgba(248, 244, 238, 0.85);
+    border-color: rgba(90, 30, 45, 0.35);
+    color: #9F7E39; /* Luxurious Deep Gold font on hover */
+    transform: translateY(-1.5px);
+    box-shadow: 
+      0 8px 22px rgba(90, 30, 45, 0.08),
+      inset 0 1px 0px rgba(255, 255, 255, 0.9);
+  }
+
+  .btn-glassy:active {
+    transform: translateY(1px);
+  }
+
+  /* Active/selected state with rich contrast */
+  .btn-glassy-active {
+    background: rgba(90, 30, 45, 0.95); /* Semi-solid Bordeaux Velvet */
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: #F8F4EE; /* Ivory Whisper */
+    border: 1px solid rgba(248, 244, 238, 0.15);
+    box-shadow: 
+      0 10px 25px rgba(90, 30, 45, 0.25),
+      inset 0 1px 1px rgba(255, 255, 255, 0.15);
+  }
+
+  .btn-glassy-active:hover {
+    background: #5A1E2D; /* True Bordeaux Velvet */
+    color: #F8F4EE;
+    border-color: rgba(248, 244, 238, 0.25);
+    transform: translateY(-1.5px);
+    box-shadow: 
+      0 12px 30px rgba(90, 30, 45, 0.35),
+      inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  }
+
+  .btn-logout-round {
+    @apply flex items-center justify-center rounded-xl bg-bg-card border border-brand-primary/10 text-text-muted transition-all duration-300 relative overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.02)];
+  }
+  .btn-logout-round:hover {
+    @apply -translate-y-1 border-white/50 text-text-base bg-[#FAF8F5] shadow-[0_8px_20px_rgba(255,255,255,0.25)];
+  }
+  .btn-logout-round::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-color: rgba(255, 255, 255, 0);
+    transition: background-color 0.3s ease;
+    pointer-events: none;
+    z-index: 15;
+  }
+  .btn-logout-round:hover::after {
+    background-color: rgba(255, 255, 255, 0.12);
+  }
+}
+
+@keyframes soundWave {
+  0%, 100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@utility animate-soundwave {
+  animation: soundWave 1.2s ease-in-out infinite;
+  transform-origin: center;
+}
+
+
