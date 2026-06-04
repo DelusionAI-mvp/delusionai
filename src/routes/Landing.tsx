@@ -215,7 +215,7 @@ export default function LandingPage() {
               <div className="space-y-2">
                 <div className="flex items-center gap-4">
                   <Logo size={32} className="text-brand-primary" />
-                  <span className="font-display font-black uppercase italic text-xl tracking-tighter">DelusionAI</span>
+                  <span className="font-display font-black uppercase italic text-xl tracking-tighter">Join Waitlist</span>
                 </div>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-text-muted leading-relaxed max-w-xs">
                   We help you feel better through support from AI and your Peer connection.
