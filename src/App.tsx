@@ -11,6 +11,7 @@ import {
 } from '@tanstack/react-router';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, onSnapshot, setDoc, getDoc, updateDoc, collection, query, where, orderBy, limit } from 'firebase/firestore';
+import emailjs from '@emailjs/browser';
 import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
 import { UserProfile, Connection, Message } from './types';
 import { Sun, Moon, LogOut, MessageCircle, Users, Home, User as UserIcon, Sparkles, Info, X, Bell, ArrowRight } from 'lucide-react';
@@ -651,6 +652,35 @@ const routeTree = rootRoute.addChildren([
 ]);
 const router = createRouter({ routeTree });
 
+const sendWelcomeEmailWithEmailJS = async (userEmail: string, userName: string) => {
+  const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+  const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
+  const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || 'X8-74B_zUy4w5AobC';
+
+  if (!serviceId || !templateId) {
+    console.warn("EmailJS configuration is missing. Make sure VITE_EMAILJS_SERVICE_ID and VITE_EMAILJS_TEMPLATE_ID are configured in environment variables.");
+    return false;
+  }
+
+  try {
+    console.log(`Sending welcome email via EmailJS to ${userEmail}...`);
+    await emailjs.send(
+      serviceId,
+      templateId,
+      {
+        to_email: userEmail,
+        name: userName,
+      },
+      publicKey
+    );
+    console.log("Welcome email sent successfully via EmailJS!");
+    return true;
+  } catch (error) {
+    console.error("Error sending welcome email with EmailJS:", error);
+    return false;
+  }
+};
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -692,6 +722,9 @@ export default function App() {
       const profileRef = doc(db, 'users', user.uid);
       try {
         const profileDoc = await getDoc(profileRef);
+        let shouldSendWelcome = false;
+        let emailToNotify = '';
+        let nameToNotify = '';
         
         if (!profileDoc.exists()) {
           const newProfile: UserProfile = {
@@ -712,6 +745,10 @@ export default function App() {
           };
           await setDoc(profileRef, newProfile, { merge: true });
 
+          shouldSendWelcome = true;
+          emailToNotify = newProfile.email;
+          nameToNotify = newProfile.displayName || 'VIP Member';
+
           setProfile(prev => {
              if (prev?.onboarded) return prev;
              return newProfile;
@@ -719,9 +756,10 @@ export default function App() {
         } else {
           const data = profileDoc.data() as UserProfile;
           
-          if (data.welcomeEmailSent === false || data.welcomeEmailSent === undefined) {
-            // Re-trigger the Cloud Function watcher by writing welcomeEmailSent as false
-            await setDoc(profileRef, { welcomeEmailSent: false }, { merge: true });
+          if (data.welcomeEmailSent !== true) {
+            shouldSendWelcome = true;
+            emailToNotify = data.email || user.email || '';
+            nameToNotify = data.displayName || user.displayName || 'VIP Member';
           }
 
           if (data.onboarded !== true) {
@@ -748,6 +786,17 @@ export default function App() {
               updatedAt: new Date().toISOString()
             });
           }
+        }
+
+        // Trigger EmailJS welcome email on the client side
+        if (shouldSendWelcome && emailToNotify) {
+          sendWelcomeEmailWithEmailJS(emailToNotify, nameToNotify).then((success) => {
+            if (success) {
+              updateDoc(profileRef, { welcomeEmailSent: true }).catch(err => {
+                console.error("Failed to update welcomeEmailSent after EmailJS send:", err);
+              });
+            }
+          });
         }
 
         unsubSnapshot = onSnapshot(profileRef, (snap) => {
