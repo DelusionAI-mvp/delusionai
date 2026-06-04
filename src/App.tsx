@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
+ import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { 
   createRootRoute, 
   createRoute, 
@@ -693,6 +693,10 @@ export default function App() {
       try {
         const profileDoc = await getDoc(profileRef);
         
+        let shouldSendEmail = false;
+        let emailToNotify = '';
+        let nameToNotify = '';
+
         if (!profileDoc.exists()) {
           const newProfile: UserProfile = {
             uid: user.uid,
@@ -701,6 +705,7 @@ export default function App() {
             photoURL: user.photoURL || '',
             onboarded: false,
             matchRequestCount: 0,
+            welcomeEmailSent: true,
             createdAt: new Date().toISOString(),
             activityMetrics: {
               lastActive: new Date().toISOString(),
@@ -711,20 +716,9 @@ export default function App() {
           };
           await setDoc(profileRef, newProfile, { merge: true });
 
-          // Send automatic "Thank you for joining" waitlist email immediately for new registration
-          if (newProfile.email) {
-            fetch('/api/notify', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                type: 'waitlist_joined',
-                recipientEmail: newProfile.email,
-                recipientName: newProfile.displayName || 'VIP Member'
-              })
-            }).catch(e => {
-              console.warn("Autosent waitlist email from App.tsx failed:", e);
-            });
-          }
+          shouldSendEmail = true;
+          emailToNotify = newProfile.email;
+          nameToNotify = newProfile.displayName || 'VIP Member';
 
           setProfile(prev => {
              if (prev?.onboarded) return prev;
@@ -732,6 +726,13 @@ export default function App() {
           });
         } else {
           const data = profileDoc.data() as UserProfile;
+          if (!data.welcomeEmailSent) {
+            shouldSendEmail = true;
+            emailToNotify = data.email || user.email || '';
+            nameToNotify = data.displayName || user.displayName || 'VIP Member';
+            await updateDoc(profileRef, { welcomeEmailSent: true });
+          }
+
           if (data.onboarded !== true) {
             // Existing user logged into pre-existing account: bypass pre-questions as requested
             const defaultEmotionalProfile = {
@@ -756,6 +757,21 @@ export default function App() {
               updatedAt: new Date().toISOString()
             });
           }
+        }
+
+        // Dispatch the welcome/waitlist email
+        if (shouldSendEmail && emailToNotify) {
+          fetch('/api/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'waitlist_joined',
+              recipientEmail: emailToNotify,
+              recipientName: nameToNotify
+            })
+          }).catch(e => {
+            console.warn("Autosent welcome waitlist email during login/signup failed:", e);
+          });
         }
 
         unsubSnapshot = onSnapshot(profileRef, (snap) => {
