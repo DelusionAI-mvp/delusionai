@@ -1,4 +1,4 @@
-import React from 'react';
+ import React from 'react';
 import { useAuth } from '../App';
 import { motion } from 'motion/react';
 import { Sparkles, Clock, Lock, Crown, ArrowRight, ShieldCheck, Heart, Star } from 'lucide-react';
@@ -17,19 +17,6 @@ export default function MayaChat() {
       <div className="w-full max-w-2xl bg-bg-card rounded-[2.5rem] border-2 border-brand-primary/10 shadow-[24px_24px_48px_rgba(128,0,32,0.03)] p-8 sm:p-14 text-center space-y-10 relative overflow-hidden">
         {/* Top burgundy line indicator */}
         <div className="absolute top-0 left-0 w-full h-1 bg-brand-primary"></div>
-
-        {/* Elegant top micro-badge */}
-        <div className="flex justify-center">
-          <motion.div 
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-brand-primary/5 border border-brand-primary/10 text-brand-primary text-[9px] uppercase tracking-[0.25em] font-black"
-          >
-            <Sparkles size={11} className="animate-pulse" />
-            <span>Executive Development Mode</span>
-          </motion.div>
-        </div>
 
         {/* Middle brand logo/emblem */}
         <div className="flex justify-center -space-y-2 flex-col items-center">
@@ -54,8 +41,8 @@ export default function MayaChat() {
             transition={{ delay: 0.2, duration: 0.6 }}
             className="text-3xl sm:text-4xl font-display font-black tracking-tight uppercase text-text-base leading-tight"
           >
-            Refining the Art of <br />
-            <span className="text-brand-primary italic">Emotional Guidance</span>
+            The Wait <br />
+            <span className="text-brand-primary italic">Won't Be Long</span>
           </motion.h1>
 
           <motion.p 
@@ -64,7 +51,7 @@ export default function MayaChat() {
             transition={{ delay: 0.4, duration: 0.8 }}
             className="text-sm sm:text-base text-text-muted leading-[1.8] font-light"
           >
-            Maya is currently being refined for our official launch. Join our early access community and be the first to experience it.
+            "Maya is almost ready to meet you. Stay close."
           </motion.p>
         </div>
 
