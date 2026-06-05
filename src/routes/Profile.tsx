@@ -1,7 +1,7 @@
-import React from 'react';
+ import React from 'react';
 import { useAuth } from '../App';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Shield, Zap, Clock, MessageSquare, Users, LogOut, ArrowRight, ShieldCheck, Check, Sparkles, X } from 'lucide-react';
+import { User, Shield, Zap, Clock, MessageSquare, Users, LogOut, ArrowRight, ShieldCheck, Check, Sparkles, X, Camera } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { format } from 'date-fns';
@@ -11,6 +11,7 @@ import { TransactionOverlay } from '../components/TransactionOverlay';
 
 export default function ProfilePage() {
   const { user, profile, connectionError } = useAuth();
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [activeConnectionsCount, setActiveConnectionsCount] = React.useState(0);
   const [uploadStatus, setUploadStatus] = React.useState<string | null>(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = React.useState(false);
@@ -112,7 +113,11 @@ export default function ProfilePage() {
         <div className="absolute bottom-0 left-0 w-48 md:w-64 h-48 md:h-64 bg-brand-accent/5 rounded-full blur-[60px] md:blur-[80px] -z-10 animate-pulse delay-700"></div>
         
         <div className="flex flex-col items-center gap-5 flex-shrink-0">
-          <div className="w-32 h-32 sm:w-48 sm:h-48 md:w-64 md:h-64 cred-inset rounded-full flex items-center justify-center border-4 border-brand-primary/20 p-2 group overflow-hidden relative">
+          <div 
+            onClick={() => fileInputRef.current?.click()}
+            className="w-32 h-32 sm:w-48 sm:h-48 md:w-64 md:h-64 cred-inset rounded-full flex items-center justify-center border-4 border-brand-primary/20 p-2 group overflow-hidden relative cursor-pointer hover:border-brand-primary/40 active:scale-95 transition-all"
+            title="Click to change photo"
+          >
             <div className="absolute inset-0 bg-gradient-to-tr from-brand-primary/20 via-transparent to-brand-accent/20 animate-spin-slow opacity-20"></div>
             <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center bg-bg-card border-2 border-brand-primary/10 relative z-10 transition-transform duration-700 group-hover:scale-105">
               {profile.photoURL ? (
@@ -127,15 +132,22 @@ export default function ProfilePage() {
             </div>
           </div>
           
-          <label className="cursor-pointer group flex items-center justify-center gap-2 px-5 py-2.5 bg-brand-primary/[0.04] border border-brand-primary/15 hover:bg-brand-primary/10 hover:border-brand-primary/30 transition-all font-mono font-black text-xs uppercase tracking-widest text-brand-primary">
+          <button 
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="cursor-pointer group flex items-center justify-center gap-2 px-6 py-3 bg-brand-primary/[0.04] border border-brand-primary/15 hover:bg-brand-primary/10 hover:border-brand-primary/30 transition-all font-mono font-black text-xs uppercase tracking-widest text-brand-primary rounded-full min-h-[44px] active:scale-95"
+          >
+            <Camera size={14} className="text-brand-primary" />
             <span>Change Photo</span>
-            <input 
-              type="file" 
-              accept="image/*" 
-              className="hidden" 
-              onChange={handleProfilePictureUpload} 
-            />
-          </label>
+          </button>
+
+          <input 
+            ref={fileInputRef}
+            type="file" 
+            accept="image/*" 
+            className="hidden" 
+            onChange={handleProfilePictureUpload} 
+          />
           
           {uploadStatus && (
             <p className={`text-[11px] font-black uppercase tracking-widest leading-none ${uploadStatus.includes('Error') || uploadStatus.includes('Failed') ? 'text-red-500 animate-shake' : 'text-brand-accent animate-pulse'}`}>
