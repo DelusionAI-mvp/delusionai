@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { MessageCircle, Users, ShieldCheck, Mail, Send, Sparkles, Linkedin, Instagram } from 'lucide-react';
+import { MessageCircle, Users, ShieldCheck, Mail, Send, Sparkles, Linkedin, Instagram, ArrowRight } from 'lucide-react';
 import { useAuth } from '../App';
 import { addDoc, collection } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -79,10 +79,10 @@ export default function LandingPage() {
           <div className="pt-4 md:pt-6 flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 px-4">
             <button 
               onClick={() => navigate({ to: '/auth' })}
-              className="btn-primary w-full sm:w-auto px-12 py-5 text-xs sm:text-sm font-semibold uppercase tracking-[0.2em] relative group overflow-hidden"
+              className="btn-get-started w-full sm:w-auto px-12 py-4.5 text-xs sm:text-sm flex items-center justify-center gap-3.5 group cursor-pointer"
             >
-              <span className="relative z-10">Join Waitlist</span>
-               <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+              <span>Get Started</span>
+              <ArrowRight size={16} />
             </button>
           </div>
 
@@ -215,7 +215,7 @@ export default function LandingPage() {
               <div className="space-y-2">
                 <div className="flex items-center gap-4">
                   <Logo size={32} className="text-brand-primary" />
-                  <span className="font-display font-black uppercase italic text-xl tracking-tighter">Join Waitlist</span>
+                  <span className="font-display font-black uppercase italic text-xl tracking-tighter">DelusionAI</span>
                 </div>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-text-muted leading-relaxed max-w-xs">
                   We help you feel better through support from AI and your Peer connection.
