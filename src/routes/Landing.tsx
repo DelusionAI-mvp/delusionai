@@ -81,7 +81,7 @@ export default function LandingPage() {
               onClick={() => navigate({ to: '/auth' })}
               className="btn-get-started w-full sm:w-auto px-12 py-4.5 text-xs sm:text-sm flex items-center justify-center gap-3.5 group cursor-pointer"
             >
-              <span>Get Started</span>
+              <span>Join Waitlist</span>
               <ArrowRight size={16} />
             </button>
           </div>
