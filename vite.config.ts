@@ -11,6 +11,11 @@ export default defineConfig(({mode}) => {
     plugins: [react(), tailwindcss()],
     root: './',
     publicDir: 'public',
+    build: {
+      rollupOptions: {
+        input: path.resolve(__dirname, 'index.html'),
+      },
+    },
     define: {
       // API keys are handled server-side
     },
