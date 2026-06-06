@@ -322,7 +322,7 @@ const About = () => {
               to="/auth" 
               className="btn-get-started group w-full sm:w-auto"
             >
-              <span>Get Started</span>
+              <span>Join Waitlist</span>
               <ArrowRight size={14} />
             </Link>
           </div>
