@@ -726,7 +726,11 @@ export default function App() {
         let emailToNotify = '';
         let nameToNotify = '';
         
-        if (!profileDoc.exists()) {
+        const isNewProfile = !profileDoc.exists();
+        // Check if the auth user account was created in the last 60 seconds as an extra safety flag
+        const isNewAuthUser = user.metadata.creationTime && Math.abs(new Date().getTime() - new Date(user.metadata.creationTime).getTime()) < 60000;
+
+        if (isNewProfile) {
           const newProfile: UserProfile = {
             uid: user.uid,
             email: user.email || '',
@@ -756,7 +760,9 @@ export default function App() {
         } else {
           const data = profileDoc.data() as UserProfile;
           
-          if (data.welcomeEmailSent !== true) {
+          // If for some reason a brand new profile was created but we need a backup check,
+          // we only trigger if they are a brand new auth user and welcome email wasn't sent yet.
+          if (isNewAuthUser && data.welcomeEmailSent !== true) {
             shouldSendWelcome = true;
             emailToNotify = data.email || user.email || '';
             nameToNotify = data.displayName || user.displayName || 'VIP Member';
