@@ -1,4 +1,4 @@
-import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
+ import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { UserProfile } from '../types';
 
@@ -198,18 +198,8 @@ export const MOCK_COMPANIONS: UserProfile[] = [
 ];
 
 export async function bootstrapPeersInDatabase() {
-  try {
-    for (const companion of MOCK_COMPANIONS) {
-      const peerDocRef = doc(db, 'users', companion.uid);
-      const snap = await getDoc(peerDocRef);
-      if (!snap.exists()) {
-        await setDoc(peerDocRef, companion);
-        console.log(`Bootstrapped peer profile: ${companion.displayName}`);
-      }
-    }
-  } catch (error) {
-    console.warn("Bootstrap database user companion synchronization failed (this is expected if Firestore is still provisioning or under access quotas):", error);
-  }
+  // Bypassed: Companion profiles are served entirely in-memory to preserve a clean Firestore database.
+  console.log("Mock peers loaded in-memory. Pristine Firestore preserved.");
 }
 
 const profileCache: Record<string, UserProfile> = {};
@@ -226,6 +216,10 @@ const pendingPromises: Record<string, Promise<UserProfile | null> | undefined> =
  * Prevents redundant calls in the same session.
  */
 export async function getCachedProfile(uid: string): Promise<UserProfile | null> {
+  if (uid.startsWith("peer_id_") || uid.startsWith("peer_id")) {
+    const mock = MOCK_COMPANIONS.find(c => c.uid === uid);
+    if (mock) return mock;
+  }
   if (profileCache[uid]) return profileCache[uid];
   
   if (pendingPromises[uid]) return pendingPromises[uid];
@@ -276,6 +270,14 @@ export async function getCachedProfile(uid: string): Promise<UserProfile | null>
  * Only one listener per UID across the whole app.
  */
 export function subscribeToProfile(uid: string, callback: (profile: UserProfile | null) => void) {
+  if (uid.startsWith("peer_id_") || uid.startsWith("peer_id")) {
+    const mock = MOCK_COMPANIONS.find(c => c.uid === uid);
+    if (mock) {
+      callback(mock);
+      return () => {}; // No-op unsubscribe for local in-memory mock companion
+    }
+  }
+
   // If we already have a value, call back immediately
   if (profileCache[uid]) {
     callback(profileCache[uid]);
