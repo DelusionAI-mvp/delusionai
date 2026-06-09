@@ -21,6 +21,7 @@ import { getCachedProfile, bootstrapPeersInDatabase } from './lib/userService';
 import { Starfield } from './components/Starfield';
 import { BordeauxTransition } from './components/BordeauxTransition';
 import { subscribeToNotifications, UserNotification } from './lib/notifications';
+import { Analytics } from '@vercel/analytics/react';
 
 // --- Auth Context ---
 interface AuthContextType {
@@ -953,6 +954,7 @@ export default function App() {
           }}
         />
       )}
+      <Analytics />
     </AuthContext.Provider>
   );
 }
