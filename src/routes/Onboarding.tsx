@@ -91,7 +91,7 @@ const QUESTIONS = [
   subtitle: 'Choose the things you like.',
   multiple: true,
   options: [
-    { label: 'Music, drawing, or writing', value: 'arts' },
+    { label: 'Music, sketching/painting, or writing in a journal', value: 'arts' },
     { label: 'Going outside', value: 'nature' },
     { label: 'Being alone for some time', value: 'solitude' },
     { label: 'Talking deeply with someone', value: 'talks' },
