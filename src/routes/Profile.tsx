@@ -2,7 +2,7 @@
 import { useAuth } from '../App';
 import { motion, AnimatePresence } from 'motion/react';
 import { User, Shield, Zap, Clock, MessageSquare, Users, LogOut, ArrowRight, ShieldCheck, Check, Sparkles, X, Camera } from 'lucide-react';
-import { auth, db } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { format } from 'date-fns';
 import { NeuralBlueprint } from '../components/NeuralBlueprint';
@@ -10,11 +10,51 @@ import { Logo } from '../components/Logo';
 import { TransactionOverlay } from '../components/TransactionOverlay';
 
 export default function ProfilePage() {
-  const { user, profile, connectionError } = useAuth();
+  const { user, profile, setProfile, connectionError } = useAuth();
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [activeConnectionsCount, setActiveConnectionsCount] = React.useState(0);
   const [uploadStatus, setUploadStatus] = React.useState<string | null>(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = React.useState(false);
+
+  // States for user editable "My Story"
+  const [isEditingStory, setIsEditingStory] = React.useState(false);
+  const [storyDraft, setStoryDraft] = React.useState('');
+  const [isSavingStory, setIsSavingStory] = React.useState(false);
+  const [storyStatusMsg, setStoryStatusMsg] = React.useState<string | null>(null);
+
+  // Sync draft edit buffer on load or profile sync
+  React.useEffect(() => {
+    if (profile && !isEditingStory) {
+      setStoryDraft(profile.userMemorySummary || '');
+    }
+  }, [profile?.userMemorySummary, isEditingStory]);
+
+  const handleSaveStory = async () => {
+    if (!user) return;
+    setIsSavingStory(true);
+    setStoryStatusMsg(null);
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      await updateDoc(userRef, { 
+        userMemorySummary: storyDraft 
+      });
+      
+      if (setProfile) {
+        setProfile(prev => prev ? { ...prev, userMemorySummary: storyDraft } : null);
+      }
+      
+      setStoryStatusMsg("Story saved successfully!");
+      setIsEditingStory(false);
+      setTimeout(() => setStoryStatusMsg(null), 3000);
+    } catch (err) {
+      console.error("Failed to update story:", err);
+      handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}`);
+      setStoryStatusMsg("Failed to save story");
+      setTimeout(() => setStoryStatusMsg(null), 3500);
+    } finally {
+      setIsSavingStory(false);
+    }
+  };
 
   // Simulated upgrade states
   const [isProcessingUpgrade, setIsProcessingUpgrade] = React.useState(false);
@@ -166,13 +206,82 @@ export default function ProfilePage() {
             </p>
           </div>
 
-          {/* Real-time Journey Narrative summarized dynamically by Maya */}
-          <div className="cred-inset p-5 md:p-6 bg-white/[0.01] border-brand-primary/10 max-w-2.5xl space-y-2">
-            <p className="text-[9px] font-black uppercase tracking-[0.3em] text-brand-primary/60">My Story</p>
-            <p className="text-xs font-bold leading-relaxed italic text-text-muted uppercase tracking-[0.05em]">
-              {profile.userMemorySummary || "Deeply reflecting, exploring support avenues, and conversing with Maya to unfold a unique soul narrative. Syncing with matching models in real-time."}
-            </p>
-          </div>
+          {/* Real-time Journey Narrative summarized dynamically by Maya, now user-editable */}
+          {!isEditingStory ? (
+            <div className="cred-inset p-5 md:p-6 bg-white/[0.01] border-brand-primary/10 max-w-2.5xl space-y-3 relative group transition-all duration-300 hover:border-brand-primary/30">
+              <div className="flex items-center justify-between">
+                <p className="text-[9px] font-black uppercase tracking-[0.3em] text-brand-primary/60">My Story</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStoryDraft(profile.userMemorySummary || "");
+                    setIsEditingStory(true);
+                  }}
+                  className="cursor-pointer flex items-center justify-center px-4 py-1.5 bg-brand-primary/[0.04] border border-brand-primary/15 hover:bg-brand-primary/10 hover:border-brand-primary/30 transition-all font-mono font-bold text-[10px] uppercase tracking-wider text-brand-primary rounded-full min-h-[28px]"
+                  title="Write My Story"
+                >
+                  <span>Edit Story</span>
+                </button>
+              </div>
+              <p className="text-xs font-bold leading-relaxed italic text-text-muted uppercase tracking-[0.05em] whitespace-pre-wrap">
+                {profile.userMemorySummary || "Deeply reflecting, exploring support avenues, and conversing with Maya to unfold a unique soul narrative. Syncing with matching models in real-time."}
+              </p>
+              {storyStatusMsg && (
+                <p className="text-[10px] font-mono font-bold tracking-wider uppercase text-brand-accent animate-pulse">
+                  {storyStatusMsg}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="cred-inset p-5 md:p-6 bg-bg-card border-brand-primary/20 max-w-2.5xl space-y-4 relative transition-all duration-300 shadow-md">
+              <div className="flex items-center justify-between">
+                <p className="text-[9px] font-black uppercase tracking-[0.3em] text-brand-primary">
+                  Writing My Story...
+                </p>
+                <span className="text-[9px] font-mono text-text-muted/50 lowercase tracking-wider">
+                  {storyDraft.length} / 1000 characters
+                </span>
+              </div>
+
+              <div className="relative">
+                <textarea
+                  value={storyDraft}
+                  onChange={(e) => setStoryDraft(e.target.value.slice(0, 1000))}
+                  placeholder="Write your story here... Convey your feelings, experiences, and journey."
+                  rows={4}
+                  className="w-full bg-[#FAF7F2] border border-brand-primary/10 hover:border-brand-primary/20 focus:border-brand-primary/50 focus:bg-white focus:ring-1 focus:ring-brand-primary/30 rounded-xl p-4 text-xs font-mono tracking-wide leading-relaxed text-text-base focus:outline-none transition-all resize-none shadow-[inset_0_2px_8px_rgba(128,0,32,0.02)]"
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  {storyStatusMsg && (
+                    <p className="text-[10px] font-mono font-bold tracking-wider uppercase text-brand-accent animate-pulse">
+                      {storyStatusMsg}
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingStory(false)}
+                    disabled={isSavingStory}
+                    className="px-3 py-1.5 border border-brand-primary/10 hover:border-brand-primary/30 text-text-muted hover:text-text-base rounded-md text-[10px] font-mono font-bold uppercase tracking-wider transition-all cursor-pointer min-h-[30px]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveStory}
+                    disabled={isSavingStory}
+                    className="px-4 py-1.5 bg-brand-primary hover:bg-[#A3002E] disabled:opacity-50 text-white rounded-md text-[10px] font-mono font-bold uppercase tracking-wider flex items-center justify-center transition-all shadow-[0_2px_10px_rgba(128,0,32,0.1)] cursor-pointer min-h-[30px]"
+                  >
+                    {isSavingStory ? "Saving..." : "Save Story"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           
           <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 sm:gap-4 md:gap-6">
             <div className={`flex items-center gap-2 sm:gap-4 px-4 sm:px-6 py-2 sm:py-3 cred-elevation border-2 transition-all duration-500 scale-95 hover:scale-100 ${profile.isPremium ? 'border-brand-accent text-brand-accent bg-brand-accent/5 shadow-[0_0_20px_rgba(255,215,0,0.1)]' : 'border-brand-primary/10 text-brand-primary/50'}`}>
