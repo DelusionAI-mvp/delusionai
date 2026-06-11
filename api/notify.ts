@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { resend } from './_shared.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -62,8 +62,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       `;
     }
 
+    const fromEmail = process.env.RESEND_FROM_EMAIL || 'DelusionAI <noreply@delusionai.in>';
+
     await resend.emails.send({
-      from: 'DelusionAI <notifications@resend.dev>', // Note: This is the default testing domain
+      from: fromEmail,
       to: recipientEmail,
       subject: subject,
       html: html,
