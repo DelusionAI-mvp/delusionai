@@ -1,4 +1,4 @@
-import "dotenv/config";
+ import "dotenv/config";
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -383,8 +383,10 @@ Output JSON with updated traits and interests.`;
         `;
       }
 
+      const fromEmail = process.env.RESEND_FROM_EMAIL || 'DelusionAI <noreply@delusionai.in>';
+
       await resend.emails.send({
-        from: 'DelusionAI <notifications@resend.dev>', // Note: This is the default testing domain
+        from: fromEmail,
         to: recipientEmail,
         subject: subject,
         html: html,
