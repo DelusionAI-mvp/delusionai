@@ -1,4 +1,4 @@
- import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { 
   createRootRoute, 
   createRoute, 
@@ -730,6 +730,10 @@ export default function App() {
         // Check if the auth user account was created in the last 60 seconds as an extra safety flag
         const isNewAuthUser = user.metadata.creationTime && Math.abs(new Date().getTime() - new Date(user.metadata.creationTime).getTime()) < 60000;
 
+        // Use localStorage to guarantee we don't send multiple times on this browser session/client
+        const welcomeEmailLocalStorageKey = `delusion_welcome_sent_${user.uid}`;
+        const hasSentWelcomeLocally = localStorage.getItem(welcomeEmailLocalStorageKey) === 'true';
+
         if (isNewProfile) {
           const newProfile: UserProfile = {
             uid: user.uid,
@@ -738,7 +742,7 @@ export default function App() {
             photoURL: user.photoURL || '',
             onboarded: false,
             matchRequestCount: 0,
-            welcomeEmailSent: false,
+            welcomeEmailSent: true, // Set to true immediately in Firestore to prevent subsequent runs!
             createdAt: new Date().toISOString(),
             activityMetrics: {
               lastActive: new Date().toISOString(),
@@ -747,11 +751,16 @@ export default function App() {
               totalPeerTime: 0
             }
           };
-          await setDoc(profileRef, newProfile, { merge: true });
 
-          shouldSendWelcome = true;
-          emailToNotify = newProfile.email;
-          nameToNotify = newProfile.displayName || 'VIP Member';
+          // Only set shouldSendWelcome if it hasn't been sent locally yet
+          if (!hasSentWelcomeLocally) {
+            localStorage.setItem(welcomeEmailLocalStorageKey, 'true');
+            shouldSendWelcome = true;
+            emailToNotify = newProfile.email;
+            nameToNotify = newProfile.displayName || 'VIP Member';
+          }
+
+          await setDoc(profileRef, newProfile, { merge: true });
 
           setProfile(prev => {
              if (prev?.onboarded) return prev;
@@ -760,12 +769,17 @@ export default function App() {
         } else {
           const data = profileDoc.data() as UserProfile;
           
-          // If for some reason a brand new profile was created but we need a backup check,
-          // we only trigger if they are a brand new auth user and welcome email wasn't sent yet.
-          if (isNewAuthUser && data.welcomeEmailSent !== true) {
+          // Genuinely check if welcomeEmailSent is already marked as true
+          // If it is not true, and this is a brand new auth user, and we haven't sent it locally, send it.
+          // IF they are an existing user who has been created > 60 seconds ago, we do NOT send the welcome email!
+          if (isNewAuthUser && data.welcomeEmailSent !== true && !hasSentWelcomeLocally) {
+            localStorage.setItem(welcomeEmailLocalStorageKey, 'true');
             shouldSendWelcome = true;
             emailToNotify = data.email || user.email || '';
             nameToNotify = data.displayName || user.displayName || 'VIP Member';
+
+            // Update the profile immediately to prevent any state delay
+            await updateDoc(profileRef, { welcomeEmailSent: true });
           }
 
           if (data.onboarded !== true) {
@@ -796,12 +810,8 @@ export default function App() {
 
         // Trigger EmailJS welcome email on the client side
         if (shouldSendWelcome && emailToNotify) {
-          sendWelcomeEmailWithEmailJS(emailToNotify, nameToNotify).then((success) => {
-            if (success) {
-              updateDoc(profileRef, { welcomeEmailSent: true }).catch(err => {
-                console.error("Failed to update welcomeEmailSent after EmailJS send:", err);
-              });
-            }
+          sendWelcomeEmailWithEmailJS(emailToNotify, nameToNotify).catch(err => {
+            console.error("Failed to send welcome email via EmailJS:", err);
           });
         }
 
