@@ -1,10 +1,10 @@
+ 
 {
-  "projectId": "delusionv1-42676",
-  "appId": "1:216387555181:web:b1447e7a2935b3d85d1464",
-  "apiKey": "AIzaSyDrDuLkSAsCtAFdCgVXB2KznsinGsfG6h4",
-  "authDomain": "www.delusionai.in",
-  "firestoreDatabaseId": "(default)",
-  "storageBucket": "delusionv1-42676.firebasestorage.app",
-  "messagingSenderId": "216387555181",
-  "measurementId": "G-EHDF7GKYZY"
-}
+  apiKey: "AIzaSyDrDuLkSAsCtAFdCgVXB2KznsinGsfG6h4",
+  authDomain: "auth.delusionai.in",
+  projectId: "delusionv1-42676",
+  storageBucket: "delusionv1-42676.firebasestorage.app",
+  messagingSenderId: "216387555181",
+  appId: "1:216387555181:web:b1447e7a2935b3d85d1464",
+  measurementId: "G-EHDF7GKYZY"
+};
