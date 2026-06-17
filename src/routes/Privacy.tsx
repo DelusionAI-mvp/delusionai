@@ -1,4 +1,4 @@
-import React from 'react';
+ import React from 'react';
 import { motion } from 'motion/react';
 import { Shield, Lock, FileText, ChevronLeft } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
@@ -49,10 +49,28 @@ export default function Privacy() {
             </div>
 
             <div className="space-y-4">
-              <h2 className="text-lg md:text-xl font-black uppercase tracking-widest text-text-base italic border-b border-black/5 pb-4">4. Third-Party Integrations</h2>
+              <h2 className="text-lg md:text-xl font-black uppercase tracking-widest text-text-base italic border-b border-black/5 pb-4">4. Google User Data Disclosures</h2>
               <p className="text-[11px] md:text-sm">
-                We utilize Google Firebase for secure data storage and Gemini AI (Google) for emotional synthesis. These entities act as Data Processors. We do not share your individual identifying data with advertisers.
+                When you authenticate with your Google Account, our application accesses specific categories of Google user data in strict compliance with the Google API Services User Data Policy, including the Limited Use requirements:
               </p>
+              <ul className="list-disc pl-6 space-y-2 text-[11px] md:text-sm">
+                <li>
+                  <strong>Google Data Accessed:</strong> We access your primary Google email address (via the <code className="bg-black/5 px-1 rounded font-mono text-[10px]">email</code> scope) and basic public profile information, including your name and profile photo URL (via the <code className="bg-black/5 px-1 rounded font-mono text-[10px]">profile</code> and <code className="bg-black/5 px-1 rounded font-mono text-[10px]">openid</code> scopes).
+                </li>
+                <li>
+                  <strong>Purpose of Usage:</strong>
+                  <ul className="list-disc pl-6 mt-1 space-y-1">
+                    <li>We use your Google email address to uniquely identify and establish your user account, authenticate secure login sessions, and automatically deliver your requested Oasis Discovery Reports directly to your inbox.</li>
+                    <li>We use your name and profile photo to customize and personalize your individual companion dashboard, greeting details, and AI chat simulations (with the virtual keeper Maya).</li>
+                  </ul>
+                </li>
+                <li>
+                  <strong>Data Storage & Safety:</strong> Your credentials and metadata are stored securely using industry-standard encryption within Google Firebase Authentication and Cloud Firestore.
+                </li>
+                <li>
+                  <strong>Data Sharing & Restrictions:</strong> We do not sell, rent, disclose, or trade your Google user data to any third-party marketing networks, advertising bureaus, or data brokers. It is shared strictly with secure processors (such as EmailJS or Resend) solely to compile and dispatch reports that you explicitly request. Your Google user data is never used to train artificial intelligence or machine learning models.
+                </li>
+              </ul>
             </div>
 
             <div className="space-y-4">
