@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+ import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getAnalytics, isSupported } from 'firebase/analytics';
@@ -35,7 +35,10 @@ setPersistence(auth, browserLocalPersistence).catch(err => {
   console.warn("Could not explicitly set browser persistence in Firebase Auth:", err);
 });
 
-export const db = initializeFirestore(app, { experimentalForceLongPolling: true });
+export const isBot = typeof navigator !== 'undefined' && 
+  /bot|google|baidu|bing|msn|duckduckbot|teoma|slurp|crawler|spider|lighthouse|headless/i.test(navigator.userAgent);
+
+export const db = initializeFirestore(app, isBot ? {} : { experimentalForceLongPolling: true });
 
 export const googleProvider = new GoogleAuthProvider();
 
@@ -95,6 +98,10 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
 // Connection test as required by instructions
 async function testConnection() {
+  if (isBot) {
+    console.log("Skipping Firestore test connection for crawler/search bot.");
+    return;
+  }
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
     console.log("Firestore connection check successful.");
