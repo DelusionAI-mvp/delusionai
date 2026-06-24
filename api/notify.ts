@@ -1,4 +1,4 @@
- import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { resend } from './_shared.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -17,6 +17,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let subject = "";
     let html = "";
 
+    let text = "";
+
     if (type === 'request') {
       subject = `New Connection Request on DelusionAI from ${senderName}`;
       html = `
@@ -29,6 +31,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           <p style="font-size: 12px; color: #8E7E7E;">DelusionAI - Your Safe Space</p>
         </div>
       `;
+      text = `Hello ${recipientName || 'there'},\n\n${senderName} wants to connect with you on DelusionAI for emotional support.\n\nLog in to your dashboard to accept or decline this request.\n\nWarmest regards,\nThe DelusionAI Team`;
     } else if (type === 'accept') {
       subject = `${senderName} accepted your connection request!`;
       html = `
@@ -41,6 +44,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           <p style="font-size: 12px; color: #8E7E7E;">DelusionAI - Your Safe Space</p>
         </div>
       `;
+      text = `Hello ${recipientName || 'there'},\n\nGreat news! ${senderName} has accepted your connection request.\n\nYou can now start chatting with them in your dashboard.\n\nWarmest regards,\nThe DelusionAI Team`;
     } else if (type === 'waitlist_joined') {
       subject = `Thank you for joining the DelusionAI Waitlist!`;
       html = `
@@ -60,15 +64,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           <p style="font-size: 11px; color: #625052; text-align: center;">This is an automated notification from your DelusionAI Waitlist Account.</p>
         </div>
       `;
+      text = `Dear ${recipientName || 'Member'},\n\nThank you for joining the exclusive DelusionAI Early Access Waitlist! We are absolutely thrilled to welcome you to our curated mental health and emotional support community.\n\nOur team is currently refining Maya AI and our deep Similar Mindsets Peer Matching systems to ensure a premium, secure, and deeply comforting experience. Since your account has been registered successfully, you are now fully enrolled in our VIP early access list!\n\nWe will contact you at ${recipientEmail} with an official invitation the moment we begin onboarding members for live interactive experiences. In the meantime, you are welcome to log in to your dashboard to view your queue and synced preference profiles.\n\nWarmest regards,\nThe DelusionAI Team`;
     }
 
-    const fromEmail = process.env.RESEND_FROM_EMAIL || 'DelusionAI <noreply@delusionai.in>';
+    const fromEmail = process.env.EMAIL_FROM || process.env.RESEND_FROM_EMAIL || 'DelusionAI <hello@mail.delusionai.in>';
 
     await resend.emails.send({
       from: fromEmail,
       to: recipientEmail,
       subject: subject,
       html: html,
+      text: text,
     });
 
     console.log(`[Email Notification] Sent to: ${recipientEmail}, Type: ${type}`);
