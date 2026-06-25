@@ -1,10 +1,19 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { Resend } from 'resend';
 import { GoogleGenAI, Type } from "@google/genai";
+
+// Ensure we load environment variables. If .env does not exist, fall back to .env.example
+dotenv.config();
+const envPath = path.join(process.cwd(), '.env');
+const envExamplePath = path.join(process.cwd(), '.env.example');
+if (!fs.existsSync(envPath) && fs.existsSync(envExamplePath)) {
+  dotenv.config({ path: envExamplePath });
+  console.log("[Environment] Standard .env not found. Loaded variables from .env.example successfully.");
+}
 
 async function startServer() {
   const app = express();
@@ -28,17 +37,144 @@ async function startServer() {
   }
 
   function getFromEmail(): string {
-    const email = (process.env.EMAIL_FROM || process.env.RESEND_FROM_EMAIL || "").trim();
+    let email = (process.env.EMAIL_FROM || process.env.RESEND_FROM_EMAIL || "").trim();
     if (email && email.includes("@") && !email.startsWith("re_")) {
-      return email;
+      const parts = email.split("@");
+      const localPart = parts[0]?.trim().toLowerCase() || "";
+      const domain = parts[1]?.trim().toLowerCase() || "";
+      
+      // If domain is empty, incomplete, a standard placeholder, or gmail.com (which Resend cannot send from)
+      if (!domain || domain === "" || domain.includes("yourdomain.com") || domain.includes("example.com") || domain === "gmail.com") {
+        return "onboarding@resend.dev";
+      }
+      if (domain === "resend.dev") {
+        return "onboarding@resend.dev";
+      }
+      if (localPart === "noreply" || localPart === "no-reply" || localPart === "no_reply") {
+        return `hello@${domain}`;
+      }
+      return `${localPart}@${domain}`;
     }
-    // If a custom API key is present, fallback to our premium subdomain sender instead of onboarding@resend.dev
-    const hasCustomKey = process.env.RESEND_API_KEY && !process.env.RESEND_API_KEY.includes("re_beBVqBhS");
-    return hasCustomKey ? 'hello@mail.delusionai.in' : 'onboarding@resend.dev';
+    return "onboarding@resend.dev";
   }
 
   const RESEND_KEY = sanitizeApiKey(process.env.RESEND_API_KEY) || "re_beBVqBhS_HLLainSpMJFe6q8exx37YTsm";
   const resend = RESEND_KEY ? new Resend(RESEND_KEY) : null;
+
+  // Prepares the target recipient and potentially modifies body if in Resend Sandbox Mode
+  function adjustSandboxRecipient(
+    recipient: string,
+    html: string,
+    text: string,
+    subject: string,
+    overrideFrom?: string
+  ): { target: string; html: string; text: string; subject: string; isRedirected: boolean } {
+    const rawFrom = overrideFrom || getFromEmail();
+    const isSandboxFrom = rawFrom.includes("resend.dev");
+    
+    // In sandbox/testing mode, only the verified administrator account address 'delusionai.in@gmail.com' is allowed.
+    // Any other addresses (like charanram32975@gmail.com or other non-verified members) are safely redirected to delusionai.in@gmail.com.
+    const allowedRecipients = ["delusionai.in@gmail.com"];
+    const isAllowed = allowedRecipients.some(email => recipient.toLowerCase().trim() === email.toLowerCase().trim());
+    
+    if (isSandboxFrom && !isAllowed) {
+      // Primary verified sandbox owner email is delusionai.in@gmail.com
+      const adminEmail = "delusionai.in@gmail.com";
+      
+      const sandboxBannerHtml = `
+        <div style="background-color: #FFF2E6; border: 2px solid #FF8000; padding: 15px; border-radius: 10px; margin-bottom: 20px; color: #663300; font-family: sans-serif; font-size: 13px;">
+          <strong>⚠️ Resend Sandbox Mode Active</strong><br/>
+          This email was originally addressed to <strong>${recipient}</strong>. Since you are in Resend Sandbox/Testing mode (using <code>${rawFrom}</code>), Resend only permits sending to your verified account email (<code>${adminEmail}</code>). We have redirected this email here so you can preview it.
+        </div>
+      `;
+      const sandboxBannerText = `[Resend Sandbox - Originally for: ${recipient}]\nThis email was redirected to you because your Resend domain is in Sandbox mode.\n\n`;
+      
+      return {
+        target: adminEmail,
+        html: sandboxBannerHtml + html,
+        text: sandboxBannerText + text,
+        subject: `[Sandbox preview for ${recipient}] ${subject}`,
+        isRedirected: true
+      };
+    }
+    
+    return {
+      target: recipient,
+      html,
+      text,
+      subject,
+      isRedirected: false
+    };
+  }
+
+  // Robust helper to send email via Resend with auto-fallback to onboarding@resend.dev on domain/sandbox errors
+  async function sendEmailWithFallback(
+    to: string,
+    subject: string,
+    html: string,
+    text: string,
+    customFrom?: string
+  ) {
+    if (!resend) {
+      console.warn("[Email Notification] Skipped: RESEND_API_KEY not configured.");
+      return { error: { message: "Email service not configured" } };
+    }
+
+    const rawFrom = customFrom || getFromEmail();
+    const fromEmail = rawFrom.includes('<') ? rawFrom : `DelusionAI <${rawFrom}>`;
+    const emailSettings = adjustSandboxRecipient(to, html, text, subject, rawFrom);
+
+    console.log(`[Email Notification] Attempting dispatch. From: "${fromEmail}" | To: "${emailSettings.target}" (originally for: "${to}")`);
+
+    try {
+      let response = await resend.emails.send({
+        from: fromEmail,
+        to: emailSettings.target,
+        subject: emailSettings.subject,
+        html: emailSettings.html,
+        text: emailSettings.text,
+        replyTo: "delusionai.in@gmail.com",
+      });
+
+      if (response && response.error) {
+        const errMsg = response.error.message || "";
+        console.warn("[Email Notification] Preferred sender failed:", fromEmail, "Error:", errMsg);
+
+        // Check if sandbox restriction or domain verification error occurs
+        const isDomainRestriction = 
+          errMsg.toLowerCase().includes("onboarding@resend.dev") || 
+          errMsg.toLowerCase().includes("sandbox") || 
+          errMsg.toLowerCase().includes("verify") ||
+          errMsg.toLowerCase().includes("domain") ||
+          errMsg.toLowerCase().includes("unauthorized") ||
+          errMsg.toLowerCase().includes("from");
+
+        if (isDomainRestriction && !rawFrom.includes("onboarding@resend.dev")) {
+          console.log("[Email Notification] Automatic fallback triggered. Retrying with onboarding@resend.dev...");
+          const fallbackFromRaw = "onboarding@resend.dev";
+          const fallbackFromEmail = `DelusionAI <${fallbackFromRaw}>`;
+          const fallbackSettings = adjustSandboxRecipient(to, html, text, subject, fallbackFromRaw);
+
+          response = await resend.emails.send({
+            from: fallbackFromEmail,
+            to: fallbackSettings.target,
+            subject: fallbackSettings.subject,
+            html: fallbackSettings.html,
+            text: fallbackSettings.text,
+            replyTo: "delusionai.in@gmail.com",
+          });
+        }
+      }
+
+      return response;
+    } catch (err: any) {
+      console.error("[Email Notification] Exception in resend.emails.send:", err);
+      return { error: err };
+    }
+  }
+
+  console.log("[Resend Service] Init: From Sender address is configured as:", getFromEmail());
+  console.log("[Resend Service] Init: API Key exists:", !!process.env.RESEND_API_KEY, "Key starts with:", RESEND_KEY ? RESEND_KEY.substring(0, 5) + "..." : "none");
 
   let aiClient: GoogleGenAI | null = null;
   function getAI(): GoogleGenAI {
@@ -245,6 +381,11 @@ Your goal: Speak beautifully and comforting, one or two brief, highly relevant s
         try {
           const rawFrom = getFromEmail();
           const fromEmail = rawFrom.includes('<') ? rawFrom : `DelusionAI <${rawFrom}>`;
+          const fromDomain = rawFrom.includes('@') ? rawFrom.split('@')[1].trim().replace('>', '').toLowerCase() : 'delusionai.in';
+          const sendingDomain = fromDomain === 'resend.dev' ? 'delusionai.in' : fromDomain;
+          const logoUrl = `https://${sendingDomain}/delusion-logo.png`;
+          const dashboardUrl = `https://${sendingDomain}/dashboard`;
+
           const reportProfile = emotionalProfile || {
             moodBaseline: "Reflective",
             needs: "Comforting conversation",
@@ -252,48 +393,53 @@ Your goal: Speak beautifully and comforting, one or two brief, highly relevant s
             interests: ["mindfulness", "self-care"]
           };
           
-          const host = req.get('host') || 'delusionai.in';
-          const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-          const logoUrl = `${protocol}://${host}/delusion-logo.png`;
-
           if (resend) {
-            const traitsStr = Array.isArray(reportProfile?.traits) ? reportProfile?.traits.join(', ') : (reportProfile?.traits || 'Sensitive, Resilient');
-            const interestsStr = Array.isArray(reportProfile?.interests) ? reportProfile?.interests.join(', ') : (reportProfile?.interests || 'Mindfulness, Self-care');
-            const textContent = `Dear ${profileDetails.displayName || 'Member'},\n\nYour interactive conversation session with Maya AI has been summarized. Based on your shared thoughts, Maya has prepared your customized Oasis Discovery Report:\n\n- Baseline Mood Alignment: ${reportProfile?.moodBaseline || 'Reflective'}\n- Primary Needs: ${reportProfile?.needs || 'Comforting conversation'}\n- Personality & Traits: ${traitsStr}\n- Interests & Coping: ${interestsStr}${memorySummary ? `\n- Maya's Insight Narrative: ${memorySummary}` : ''}\n\n"Maya is almost ready to introduce you to your customized peer matches. Let's step forward together."\n\nWarmest regards,\nThe DelusionAI Team`;
-
-            await resend.emails.send({
-              from: fromEmail,
-              to: profileDetails.email,
-              subject: "Your Oasis Discovery Report from Maya AI",
-              html: `
-                <div style="font-family: sans-serif; padding: 30px; line-height: 1.6; color: #2B050C; background-color: #F5EFE6; max-width: 600px; margin: 0 auto; border-radius: 20px; border: 2px solid #8B1A2F;">
-                  <div style="text-align: center; margin-bottom: 25px;">
-                    <img src="${logoUrl}" alt="DelusionAI Logo" style="width: 130px; height: 130px; border-radius: 50%; border: 2px solid #8B1A2F; margin: 0 auto 15px auto; display: block; object-fit: cover;" referrerPolicy="no-referrer" />
-                    <h1 style="color: #8B1A2F; margin: 0; font-size: 28px;">DelusionAI</h1>
-                    <p style="text-transform: uppercase; letter-spacing: 0.25em; font-size: 10px; color: #625052; font-weight: bold; margin-top: 5px;">Oasis Discovery Report</p>
-                  </div>
-                  <hr style="border: none; border-top: 2px solid rgba(139,26,47,0.1); margin: 20px 0;" />
-                  <p>Dear ${profileDetails.displayName || 'Member'},</p>
-                  <p>Your interactive conversation session with <strong>Maya AI</strong> has been summarized. Based on your shared thoughts, Maya has prepared your customized <strong>Oasis Discovery Report</strong>:</p>
-                  
-                  <div style="background-color: #FFFBF0; border: 1px solid rgba(139,26,47,0.1); padding: 20px; border-radius: 12px; margin: 20px 0;">
-                    <h3 style="color: #8B1A2F; margin-top: 0;">Emotional Alignment Profile</h3>
-                    <p><strong>Baseline Mood Alignment:</strong> ${reportProfile?.moodBaseline || 'Reflective'}</p>
-                    <p><strong>Primary Needs:</strong> ${reportProfile?.needs || 'Comforting conversation'}</p>
-                    <p><strong>Personality & Traits:</strong> ${traitsStr}</p>
-                    <p><strong>Interests & Coping:</strong> ${interestsStr}</p>
-                    ${memorySummary ? `<p><strong>Maya's Insight Narrative:</strong> ${memorySummary}</p>` : ''}
-                  </div>
-
-                  <p style="font-style: italic; color: #625052;">"Maya is almost ready to introduce you to your customized peer matches. Let's step forward together."</p>
-                  
-                  <p>Warmest regards,</p>
-                  <p style="font-weight: bold; color: #8B1A2F;">The DelusionAI Team</p>
+            const htmlBody = `
+              <div style="font-family: sans-serif; padding: 30px; line-height: 1.6; color: #2B050C; background-color: #F5EFE6; max-width: 600px; margin: 0 auto; border-radius: 20px; border: 2px solid #8B1A2F;">
+                <div style="text-align: center; margin-bottom: 25px;">
+                  <img src="${logoUrl}" alt="DelusionAI Logo" style="width: 130px; height: 130px; border-radius: 50%; border: 2px solid #8B1A2F; margin: 0 auto 15px auto; display: block; object-fit: cover;" referrerPolicy="no-referrer" />
+                  <h1 style="color: #8B1A2F; margin: 0; font-size: 28px;">DelusionAI</h1>
+                  <p style="text-transform: uppercase; letter-spacing: 0.25em; font-size: 10px; color: #625052; font-weight: bold; margin-top: 5px;">Oasis Discovery Report</p>
                 </div>
-              `,
-              text: textContent,
-            });
-            console.log("[Maya Chat] Empathy discovery mail has been successfully sent.");
+                <hr style="border: none; border-top: 2px solid rgba(139,26,47,0.1); margin: 20px 0;" />
+                <p>Dear ${profileDetails.displayName || 'Member'},</p>
+                <p>Your interactive conversation session with <strong>Maya AI</strong> has been summarized. Based on your shared thoughts, Maya has prepared your customized <strong>Oasis Discovery Report</strong>:</p>
+                
+                <div style="background-color: #FFFBF0; border: 1px solid rgba(139,26,47,0.1); padding: 20px; border-radius: 12px; margin: 20px 0;">
+                  <h3 style="color: #8B1A2F; margin-top: 0;">Emotional Alignment Profile</h3>
+                  <p><strong>Baseline Mood Alignment:</strong> ${reportProfile?.moodBaseline || 'Reflective'}</p>
+                  <p><strong>Primary Needs:</strong> ${reportProfile?.needs || 'Comforting conversation'}</p>
+                  <p><strong>Personality & Traits:</strong> ${Array.isArray(reportProfile?.traits) ? reportProfile?.traits.join(', ') : (reportProfile?.traits || 'Sensitive, Resilient')}</p>
+                  <p><strong>Interests & Coping:</strong> ${Array.isArray(reportProfile?.interests) ? reportProfile?.interests.join(', ') : (reportProfile?.interests || 'Mindfulness, Self-care')}</p>
+                  ${memorySummary ? `<p><strong>Maya's Insight Narrative:</strong> ${memorySummary}</p>` : ''}
+                </div>
+
+                <p style="font-style: italic; color: #625052;">"Maya is almost ready to introduce you to your customized peer matches. Let's step forward together."</p>
+                
+                <div style="text-align: center; margin: 25px 0;">
+                  <a href="${dashboardUrl}" style="display: inline-block; background-color: #8B1A2F; color: #FFFBF0; padding: 12px 24px; font-weight: bold; text-decoration: none; border-radius: 8px;">Access Your Companion Dashboard</a>
+                </div>
+
+                <p>Warmest regards,</p>
+                <p style="font-weight: bold; color: #8B1A2F;">The DelusionAI Team</p>
+              </div>
+            `;
+
+            const textBody = `Dear ${profileDetails.displayName || 'Member'},\n\nYour interactive conversation session with Maya AI has been summarized. Based on your shared thoughts, Maya has prepared your customized Oasis Discovery Report:\n\nEmotional Alignment Profile\n---------------------------\nBaseline Mood Alignment: ${reportProfile?.moodBaseline || 'Reflective'}\nPrimary Needs: ${reportProfile?.needs || 'Comforting conversation'}\nPersonality & Traits: ${Array.isArray(reportProfile?.traits) ? reportProfile?.traits.join(', ') : (reportProfile?.traits || 'Sensitive, Resilient')}\nInterests & Coping: ${Array.isArray(reportProfile?.interests) ? reportProfile?.interests.join(', ') : (reportProfile?.interests || 'Mindfulness, Self-care')}\n\n${memorySummary ? `Maya's Insight Narrative:\n${memorySummary}\n` : ''}\n"Maya is almost ready to introduce you to your customized peer matches. Let's step forward together."\n\nAccess your dashboard here: ${dashboardUrl}\n\nWarmest regards,\nThe DelusionAI Team`;
+
+            const reportResponse = await sendEmailWithFallback(
+              profileDetails.email,
+              "Your Oasis Discovery Report from Maya AI",
+              htmlBody,
+              textBody,
+              rawFrom
+            );
+
+            if (reportResponse && reportResponse.error) {
+              console.error("[Maya Chat] Resend API Error on discovery report:", reportResponse.error);
+            } else {
+              console.log("[Maya Chat] Empathy discovery mail has been successfully sent.");
+            }
           } else {
             console.warn("[Maya Chat] Failed to send automated report: Resend client is not configured.");
           }
@@ -411,7 +557,6 @@ Output JSON with updated traits and interests.`;
       });
     }
   });
-
   // API Route for Email Notifications
   app.post("/api/notify", async (req, res) => {
     const { type, recipientEmail, senderName, recipientName, emotionalProfile, summary } = req.body;
@@ -426,9 +571,13 @@ Output JSON with updated traits and interests.`;
       let html = "";
       let text = "";
 
-      const host = req.get('host') || 'delusionai.in';
-      const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-      const logoUrl = `${protocol}://${host}/delusion-logo.png`;
+      const rawFrom = getFromEmail();
+      const fromEmail = rawFrom.includes('<') ? rawFrom : `DelusionAI <${rawFrom}>`;
+      const fromDomain = rawFrom.includes('@') ? rawFrom.split('@')[1].trim().replace('>', '').toLowerCase() : 'delusionai.in';
+      const sendingDomain = fromDomain === 'resend.dev' ? 'delusionai.in' : fromDomain;
+      const logoUrl = `https://${sendingDomain}/delusion-logo.png`;
+      const dashboardUrl = `https://${sendingDomain}/dashboard`;
+      const chatUrl = `https://${sendingDomain}/chat`;
 
       if (type === 'request') {
         subject = `New Connection Request on DelusionAI from ${senderName}`;
@@ -443,11 +592,16 @@ Output JSON with updated traits and interests.`;
             <p>Hello ${recipientName || 'there'},</p>
             <p><strong>${senderName}</strong> wants to connect with you on DelusionAI for mutual empathy and emotional support.</p>
             <p>Please log in to your dashboard to accept or decline this connection request.</p>
+
+            <div style="text-align: center; margin: 25px 0;">
+              <a href="${dashboardUrl}" style="display: inline-block; background-color: #8B1A2F; color: #FFFBF0; padding: 12px 24px; font-weight: bold; text-decoration: none; border-radius: 8px;">View Request in Dashboard</a>
+            </div>
+
             <p>Warmest regards,</p>
             <p style="font-weight: bold; color: #8B1A2F;">The DelusionAI Team</p>
           </div>
         `;
-        text = `Hello ${recipientName || 'there'},\n\n${senderName} wants to connect with you on DelusionAI for mutual empathy and emotional support.\n\nPlease log in to your dashboard to accept or decline this connection request.\n\nWarmest regards,\nThe DelusionAI Team`;
+        text = `Hello ${recipientName || 'there'},\n\n${senderName} wants to connect with you on DelusionAI for mutual empathy and emotional support.\n\nPlease visit your dashboard to accept or decline this connection request:\n${dashboardUrl}\n\nWarmest regards,\nThe DelusionAI Team`;
       } else if (type === 'accept') {
         subject = `${senderName} accepted your connection request!`;
         html = `
@@ -461,11 +615,16 @@ Output JSON with updated traits and interests.`;
             <p>Hello ${recipientName || 'there'},</p>
             <p>Great news! <strong>${senderName}</strong> has accepted your connection request.</p>
             <p>You can now start sharing and sending messages directly with them in your companion dashboard.</p>
+
+            <div style="text-align: center; margin: 25px 0;">
+              <a href="${chatUrl}" style="display: inline-block; background-color: #8B1A2F; color: #FFFBF0; padding: 12px 24px; font-weight: bold; text-decoration: none; border-radius: 8px;">Start Conversation</a>
+            </div>
+
             <p>Warmest regards,</p>
             <p style="font-weight: bold; color: #8B1A2F;">The DelusionAI Team</p>
           </div>
         `;
-        text = `Hello ${recipientName || 'there'},\n\nGreat news! ${senderName} has accepted your connection request.\n\nYou can now start sharing and sending messages directly with them in your companion dashboard.\n\nWarmest regards,\nThe DelusionAI Team`;
+        text = `Hello ${recipientName || 'there'},\n\nGreat news! ${senderName} has accepted your connection request.\n\nYou can now start sharing and sending messages directly with them in your companion dashboard:\n${chatUrl}\n\nWarmest regards,\nThe DelusionAI Team`;
       } else if (type === 'waitlist_joined') {
         subject = `Thank you for joining the DelusionAI Waitlist!`;
         html = `
@@ -480,11 +639,16 @@ Output JSON with updated traits and interests.`;
             <p>Thank you for joining the exclusive <strong>DelusionAI Early Access Waitlist</strong>! We are absolutely thrilled to welcome you to our curated mental health and emotional support community.</p>
             <p>Our team is currently refining <strong>Maya AI</strong> and our deep <strong>Similar Mindsets Peer Matching</strong> systems to ensure a premium, secure, and deeply comforting experience. Since your account and waitlist file have been registered successfully, you are now fully enrolled in our VIP early access list!</p>
             <p>We will contact you at <strong>${recipientEmail}</strong> with an official invitation the moment we begin onboarding members for live interactive experiences. In the meantime, you are welcome to log in to your dashboard to view your queue and synced preference profiles.</p>
+
+            <div style="text-align: center; margin: 25px 0;">
+              <a href="${dashboardUrl}" style="display: inline-block; background-color: #8B1A2F; color: #FFFBF0; padding: 12px 24px; font-weight: bold; text-decoration: none; border-radius: 8px;">Access Your Dashboard</a>
+            </div>
+
             <p>Warmest regards,</p>
             <p style="font-weight: bold; color: #8B1A2F;">The DelusionAI Team</p>
           </div>
         `;
-        text = `Dear ${recipientName || 'Member'},\n\nThank you for joining the exclusive DelusionAI Early Access Waitlist! We are absolutely thrilled to welcome you to our curated mental health and emotional support community.\n\nOur team is currently refining Maya AI and our deep Similar Mindsets Peer Matching systems to ensure a premium, secure, and deeply comforting experience. Since your account has been registered successfully, you are now fully enrolled in our VIP early access list!\n\nWe will contact you at ${recipientEmail} with an official invitation the moment we begin onboarding members for live interactive experiences. In the meantime, you are welcome to log in to your dashboard to view your queue and synced preference profiles.\n\nWarmest regards,\nThe DelusionAI Team`;
+        text = `Dear ${recipientName || 'Member'},\n\nThank you for joining the exclusive DelusionAI Early Access Waitlist! We are absolutely thrilled to welcome you to our curated mental health and emotional support community.\n\nOur team is currently refining Maya AI and our deep Similar Mindsets Peer Matching systems to ensure a premium, secure, and deeply comforting experience.\n\nWe will contact you at ${recipientEmail} with an official invitation the moment we begin onboarding members for live interactive experiences. In the meantime, you are welcome to log in to your dashboard to view your queue and synced preference profiles:\n${dashboardUrl}\n\nWarmest regards,\nThe DelusionAI Team`;
       } else if (type === 'welcome') {
         subject = `Welcome to DelusionAI - Your Premium Safe Space`;
         html = `
@@ -496,12 +660,17 @@ Output JSON with updated traits and interests.`;
             </div>
             <hr style="border: none; border-top: 2px solid rgba(139,26,47,0.1); margin: 20px 0;" />
             <p>Dear ${recipientName || 'Member'},</p>
-            <p>Thank you for being a part of <strong>DelusionAI</strong>.</p>
+            <p>Thank you for being a part of <strong>DelusionAI</strong>. We are here to provide a safe space and connect you with peers who understand your journey.</p>
+
+            <div style="text-align: center; margin: 25px 0;">
+              <a href="${dashboardUrl}" style="display: inline-block; background-color: #8B1A2F; color: #FFFBF0; padding: 12px 24px; font-weight: bold; text-decoration: none; border-radius: 8px;">Get Started Now</a>
+            </div>
+
             <p>Warmest regards,</p>
             <p style="font-weight: bold; color: #8B1A2F;">The DelusionAI Team</p>
           </div>
         `;
-        text = `Dear ${recipientName || 'Member'},\n\nThank you for being a part of DelusionAI.\n\nWarmest regards,\nThe DelusionAI Team`;
+        text = `Dear ${recipientName || 'Member'},\n\nThank you for being a part of DelusionAI. We are here to provide a safe space and connect you with peers who understand your journey.\n\nAccess your dashboard here:\n${dashboardUrl}\n\nWarmest regards,\nThe DelusionAI Team`;
       } else if (type === 'login') {
         subject = `Welcome Back to DelusionAI - Secure Login Notification`;
         html = `
@@ -516,15 +685,17 @@ Output JSON with updated traits and interests.`;
             <p>We are writing to let you know that you have successfully logged in to your <strong>DelusionAI</strong> account.</p>
             <p>We take the security of your private thoughts, conversation logs, and emotional profile very seriously. If this login was authorized by you, there is no action needed on your part. Enjoy your session and conversations with Maya AI.</p>
             <p>If you did not authorize this login, please change your credentials immediately or contact support.</p>
+
+            <div style="text-align: center; margin: 25px 0;">
+              <a href="${dashboardUrl}" style="display: inline-block; background-color: #8B1A2F; color: #FFFBF0; padding: 12px 24px; font-weight: bold; text-decoration: none; border-radius: 8px;">Go to Dashboard</a>
+            </div>
+
             <p>Warmest regards,</p>
             <p style="font-weight: bold; color: #8B1A2F;">The DelusionAI Team</p>
           </div>
         `;
-        text = `Dear ${recipientName || 'Member'},\n\nWe are writing to let you know that you have successfully logged in to your DelusionAI account.\n\nWe take the security of your private thoughts, conversation logs, and emotional profile very seriously. If this login was authorized by you, there is no action needed on your part. Enjoy your session and conversations with Maya AI.\n\nIf you did not authorize this login, please change your credentials immediately or contact support.\n\nWarmest regards,\nThe DelusionAI Team`;
+        text = `Dear ${recipientName || 'Member'},\n\nWe are writing to let you know that you have successfully logged in to your DelusionAI account.\n\nWe take the security of your private thoughts, conversation logs, and emotional profile very seriously. If this login was authorized by you, there is no action needed. Enjoy your session and conversations with Maya AI.\n\nGo to your dashboard:\n${dashboardUrl}\n\nIf you did not authorize this login, please change your credentials immediately or contact support.\n\nWarmest regards,\nThe DelusionAI Team`;
       } else if (type === 'chat_report') {
-        const traitsStr = Array.isArray(emotionalProfile?.traits) ? emotionalProfile?.traits.join(', ') : (emotionalProfile?.traits || 'Sensitive, Resilient');
-        const interestsStr = Array.isArray(emotionalProfile?.interests) ? emotionalProfile?.interests.join(', ') : (emotionalProfile?.interests || 'Mindfulness, Self-care');
-        
         subject = `Your Oasis Discovery Report from Maya AI`;
         html = `
           <div style="font-family: sans-serif; padding: 30px; line-height: 1.6; color: #2B050C; background-color: #F5EFE6; max-width: 600px; margin: 0 auto; border-radius: 20px; border: 2px solid #8B1A2F;">
@@ -541,32 +712,68 @@ Output JSON with updated traits and interests.`;
               <h3 style="color: #8B1A2F; margin-top: 0;">Emotional Alignment Profile</h3>
               <p><strong>Baseline Mood Alignment:</strong> ${emotionalProfile?.moodBaseline || 'Reflective'}</p>
               <p><strong>Primary Needs:</strong> ${emotionalProfile?.needs || 'Comforting conversation'}</p>
-              <p><strong>Personality & Traits:</strong> ${traitsStr}</p>
-              <p><strong>Interests & Coping:</strong> ${interestsStr}</p>
+              <p><strong>Personality & Traits:</strong> ${Array.isArray(emotionalProfile?.traits) ? emotionalProfile?.traits.join(', ') : (emotionalProfile?.traits || 'Sensitive, Resilient')}</p>
+              <p><strong>Interests & Coping:</strong> ${Array.isArray(emotionalProfile?.interests) ? emotionalProfile?.interests.join(', ') : (emotionalProfile?.interests || 'Mindfulness, Self-care')}</p>
               ${summary ? `<p><strong>Maya's Insight Narrative:</strong> ${summary}</p>` : ''}
             </div>
 
             <p style="font-style: italic; color: #625052;">"Maya is almost ready to introduce you to your customized peer matches. Let's step forward together."</p>
+
+            <div style="text-align: center; margin: 25px 0;">
+              <a href="${dashboardUrl}" style="display: inline-block; background-color: #8B1A2F; color: #FFFBF0; padding: 12px 24px; font-weight: bold; text-decoration: none; border-radius: 8px;">Go to Dashboard</a>
+            </div>
             
             <p>Warmest regards,</p>
             <p style="font-weight: bold; color: #8B1A2F;">The DelusionAI Team</p>
           </div>
         `;
-        text = `Dear ${recipientName || 'Member'},\n\nYour interactive conversation session with Maya AI has been summarized. Based on your shared thoughts, Maya has prepared your customized Oasis Discovery Report:\n\n- Baseline Mood Alignment: ${emotionalProfile?.moodBaseline || 'Reflective'}\n- Primary Needs: ${emotionalProfile?.needs || 'Comforting conversation'}\n- Personality & Traits: ${traitsStr}\n- Interests & Coping: ${interestsStr}${summary ? `\n- Maya's Insight Narrative: ${summary}` : ''}\n\n"Maya is almost ready to introduce you to your customized peer matches. Let's step forward together."\n\nWarmest regards,\nThe DelusionAI Team`;
+        text = `Dear ${recipientName || 'Member'},\n\nYour interactive conversation session with Maya AI has been summarized. Based on your shared thoughts, Maya has prepared your customized Oasis Discovery Report:\n\nEmotional Alignment Profile\n---------------------------\nBaseline Mood Alignment: ${emotionalProfile?.moodBaseline || 'Reflective'}\nPrimary Needs: ${emotionalProfile?.needs || 'Comforting conversation'}\nPersonality & Traits: ${Array.isArray(emotionalProfile?.traits) ? emotionalProfile?.traits.join(', ') : (emotionalProfile?.traits || 'Sensitive, Resilient')}\nInterests & Coping: ${Array.isArray(emotionalProfile?.interests) ? emotionalProfile?.interests.join(', ') : (emotionalProfile?.interests || 'Mindfulness, Self-care')}\n\n${summary ? `Maya's Insight Narrative:\n${summary}\n` : ''}\n"Maya is almost ready to introduce you to your customized peer matches. Let's step forward together."\n\nAccess your dashboard here:\n${dashboardUrl}\n\nWarmest regards,\nThe DelusionAI Team`;
+      } else if (type === 'auth_error_alert') {
+        subject = `⚠️ DelusionAI Auth Error Alert - System Logs`;
+        html = `
+          <div style="font-family: sans-serif; padding: 30px; line-height: 1.6; color: #2B050C; background-color: #F5EFE6; max-width: 600px; margin: 0 auto; border-radius: 20px; border: 2px solid #8B1A2F;">
+            <div style="text-align: center; margin-bottom: 25px;">
+              <img src="${logoUrl}" alt="DelusionAI Logo" style="width: 130px; height: 130px; border-radius: 50%; border: 2px solid #8B1A2F; margin: 0 auto 15px auto; display: block; object-fit: cover;" referrerPolicy="no-referrer" />
+              <h1 style="color: #8B1A2F; margin: 0; font-size: 28px;">DelusionAI</h1>
+              <p style="text-transform: uppercase; letter-spacing: 0.25em; font-size: 10px; color: #8B1A2F; font-weight: bold; margin-top: 5px;">Auth Error Security Alert</p>
+            </div>
+            <hr style="border: none; border-top: 2px solid rgba(139,26,47,0.1); margin: 20px 0;" />
+            <p>Dear Administrator,</p>
+            <p>An authentication error occurred on <strong>DelusionAI</strong>. To protect user privacy, the technical error has been hidden from the public interface and is forwarded here:</p>
+            
+            <div style="background-color: #FFFBF0; border: 1px solid rgba(139,26,47,0.1); padding: 20px; border-radius: 12px; margin: 20px 0; font-family: monospace; font-size: 13px;">
+              <p><strong>Attempted User Email:</strong> ${recipientEmail || 'Unknown/Google Sign-In'}</p>
+              <p><strong>Error Message:</strong> ${summary || 'No detailed message'}</p>
+              <p><strong>Error Code:</strong> ${senderName || 'N/A'}</p>
+              <p><strong>User Agent:</strong> ${recipientName || 'N/A'}</p>
+              <p><strong>Domain:</strong> ${emotionalProfile?.domain || 'N/A'}</p>
+              <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
+            </div>
+
+            <p>Please review your Firebase Console settings if this is an Authorized Domain or third-party cookie issue.</p>
+            <p>Warmest regards,</p>
+            <p style="font-weight: bold; color: #8B1A2F;">The DelusionAI Security Engine</p>
+          </div>
+        `;
+        text = `DelusionAI Auth Error Alert\n\nAttempted Email: ${recipientEmail}\nError Message: ${summary}\nError Code: ${senderName}\nUser Agent: ${recipientName}\nDomain: ${emotionalProfile?.domain}`;
       }
 
-      const rawFrom = getFromEmail();
-      const fromEmail = rawFrom.includes('<') ? rawFrom : `DelusionAI <${rawFrom}>`;
+      const targetEmail = type === 'auth_error_alert' ? 'delusionai.in@gmail.com' : recipientEmail;
 
-      await resend.emails.send({
-        from: fromEmail,
-        to: recipientEmail,
-        subject: subject,
-        html: html,
-        text: text,
-      });
+      const response = await sendEmailWithFallback(
+        targetEmail,
+        subject,
+        html,
+        text,
+        rawFrom
+      );
 
-      console.log(`[Email Notification] Sent to: ${recipientEmail}, Type: ${type}`);
+      if (response && response.error) {
+        console.error("[Email Notification] Resend API Error:", response.error);
+        return res.status(500).json({ error: response.error.message || "Failed to send email via Resend" });
+      }
+
+      console.log(`[Email Notification] Successfully dispatched to: ${targetEmail}`);
       res.json({ status: "ok" });
     } catch (error) {
       console.error("[Email Notification] Error:", error);

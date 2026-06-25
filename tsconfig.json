@@ -1,4 +1,4 @@
- {
+{
   "compilerOptions": {
     "target": "ES2022",
     "experimentalDecorators": true,
@@ -24,10 +24,5 @@
     "noEmit": true,
     "strict": true,
     "strictNullChecks": true
-  },
-  "exclude": [
-    "functions",
-    "node_modules",
-    "dist"
-  ]
+  }
 }

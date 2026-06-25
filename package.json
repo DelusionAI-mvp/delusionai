@@ -1,4 +1,4 @@
- {
+{
   "name": "react-example",
   "private": true,
   "version": "0.0.0",
@@ -6,16 +6,14 @@
   "engines": {
     "node": "24.x"
   },
-   "scripts": {
+  "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "build:frontend": "vite build",    
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@emailjs/browser": "^4.4.1",
     "@google/genai": "^2.3.0",
     "@tailwindcss/vite": "^4.1.14",
     "@tanstack/react-router": "^1.169.2",
@@ -42,6 +40,7 @@
     "@vercel/node": "^5.8.11",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.28.0",
+    "sharp": "^0.34.5",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",

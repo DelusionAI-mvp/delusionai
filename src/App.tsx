@@ -11,7 +11,6 @@ import {
 } from '@tanstack/react-router';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, onSnapshot, setDoc, getDoc, updateDoc, collection, query, where, orderBy, limit } from 'firebase/firestore';
-import emailjs from '@emailjs/browser';
 import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
 import { UserProfile, Connection, Message } from './types';
 import { Sun, Moon, LogOut, MessageCircle, Users, Home, User as UserIcon, Sparkles, Info, X, Bell, ArrowRight } from 'lucide-react';
@@ -254,9 +253,13 @@ const Root = () => {
       return;
     }
     
-    // Redirect logged-in and onboarded users away from landing
-    if (isReallyOnboarded && path === '/') {
-      navigate({ to: '/dashboard' });
+    // Redirect logged-in and onboarded users away from landing or auth page
+    if (path === '/' || path === '/auth') {
+      if (isReallyOnboarded) {
+        navigate({ to: '/dashboard' });
+      } else {
+        navigate({ to: '/onboarding', replace: true });
+      }
     }
   }, [loading, user, profile?.onboarded, location.pathname]);
 
@@ -415,12 +418,18 @@ const Root = () => {
                   </button>
                 </div>
               ) : showPublicNav ? (
-                <div className="flex items-center gap-1.5 sm:gap-4">
+                <div className="flex items-center gap-2 sm:gap-4">
                   <button 
                     onClick={() => handleNav('/about')} 
                     className={`btn-glassy group flex items-center justify-center gap-2 hover:text-[#9F7E39] ${path === '/about' ? 'btn-glassy-active' : 'text-[#5A1E2D]'}`}
                   >
                     <span>About</span>
+                  </button>
+                  <button 
+                    onClick={() => handleNav('/auth')} 
+                    className="btn-get-started !py-2.5 !px-4.5 !text-[10px] sm:!text-[11px]"
+                  >
+                    <span>Get Started</span>
                   </button>
                 </div>
               ) : null}
@@ -652,31 +661,40 @@ const routeTree = rootRoute.addChildren([
 ]);
 const router = createRouter({ routeTree });
 
-const sendWelcomeEmailWithEmailJS = async (userEmail: string, userName: string) => {
-  const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
-  const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
-  const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY || 'X8-74B_zUy4w5AobC';
-
-  if (!serviceId || !templateId) {
-    console.warn("EmailJS configuration is missing. Make sure VITE_EMAILJS_SERVICE_ID and VITE_EMAILJS_TEMPLATE_ID are configured in environment variables.");
-    return false;
-  }
-
+const sendWelcomeEmailWithResend = async (userEmail: string, userName: string) => {
   try {
     console.log("Sending welcome email to:", userEmail, "Name:", userName);
-    await emailjs.send(
-      serviceId,
-      templateId,
-      {
-        to_email: userEmail,
-        name: userName,
-      },
-      publicKey
-    );
-    console.log("Email sent successfully!");
-    return true;
-  } catch (emailErr: any) {
-    console.error("EmailJS Error:", emailErr?.text || emailErr?.message || emailErr);
+    const response = await fetch('/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'welcome',
+        recipientEmail: userEmail,
+        recipientName: userName
+      })
+    });
+    return response.ok;
+  } catch (err) {
+    console.error("Failed to send welcome email via Resend API:", err);
+    return false;
+  }
+};
+
+const sendLoginEmailWithResend = async (userEmail: string, userName: string) => {
+  try {
+    console.log("Sending login alert notification email to:", userEmail, "Name:", userName);
+    const response = await fetch('/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'login',
+        recipientEmail: userEmail,
+        recipientName: userName
+      })
+    });
+    return response.ok;
+  } catch (err) {
+    console.error("Failed to send login notification email via Resend API:", err);
     return false;
   }
 };
@@ -727,6 +745,22 @@ export default function App() {
         let nameToNotify = '';
         
         const isNewProfile = !profileDoc.exists();
+        let displayNameToUse = user.displayName || '';
+
+        if (!displayNameToUse && isNewProfile) {
+          // Wait briefly for updateProfile to finish in Auth.tsx
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          try {
+            await user.reload();
+            const reloadedUser = auth.currentUser;
+            if (reloadedUser) {
+              displayNameToUse = reloadedUser.displayName || '';
+            }
+          } catch (e) {
+            console.warn("Could not reload user auth profile:", e);
+          }
+        }
+
         // Check if the auth user account was created in the last 60 seconds as an extra safety flag
         const isNewAuthUser = user.metadata.creationTime && Math.abs(new Date().getTime() - new Date(user.metadata.creationTime).getTime()) < 60000;
 
@@ -738,7 +772,7 @@ export default function App() {
           const newProfile: UserProfile = {
             uid: user.uid,
             email: user.email || '',
-            displayName: user.displayName || '',
+            displayName: displayNameToUse || '',
             photoURL: user.photoURL || '',
             onboarded: false,
             matchRequestCount: 0,
@@ -776,7 +810,7 @@ export default function App() {
             localStorage.setItem(welcomeEmailLocalStorageKey, 'true');
             shouldSendWelcome = true;
             emailToNotify = data.email || user.email || '';
-            nameToNotify = data.displayName || user.displayName || 'VIP Member';
+            nameToNotify = data.displayName || displayNameToUse || user.displayName || 'VIP Member';
 
             // Update the profile immediately to prevent any state delay
             await updateDoc(profileRef, { welcomeEmailSent: true });
@@ -808,11 +842,24 @@ export default function App() {
           }
         }
 
-        // Trigger EmailJS welcome email on the client side
+        // Trigger Resend welcome or login email on the client side
         if (shouldSendWelcome && emailToNotify) {
-          sendWelcomeEmailWithEmailJS(emailToNotify, nameToNotify).catch(err => {
-            console.error("Failed to send welcome email via EmailJS:", err);
+          sendWelcomeEmailWithResend(emailToNotify, nameToNotify).catch(err => {
+            console.error("Failed to send welcome email via Resend:", err);
           });
+        } else {
+          // Send login alert email if they are returning
+          const loginEmailSessionKey = `delusion_login_sent_${user.uid}`;
+          const hasSentLoginInSession = sessionStorage.getItem(loginEmailSessionKey) === 'true';
+          const loginEmailToNotify = user.email || (profileDoc.exists() ? (profileDoc.data() as UserProfile).email : '');
+          const loginNameToNotify = user.displayName || (profileDoc.exists() ? (profileDoc.data() as UserProfile).displayName : '') || 'VIP Member';
+
+          if (!hasSentLoginInSession && loginEmailToNotify) {
+            sessionStorage.setItem(loginEmailSessionKey, 'true');
+            sendLoginEmailWithResend(loginEmailToNotify, loginNameToNotify).catch(err => {
+              console.error("Failed to send login email via Resend:", err);
+            });
+          }
         }
 
         unsubSnapshot = onSnapshot(profileRef, (snap) => {

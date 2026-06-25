@@ -11,7 +11,7 @@ service cloud.firestore {
     }
     
     function isValidId(id) {
-      return id is string && id.size() >= 5 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() >= 5 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
     }
     
     function incoming() {
@@ -32,7 +32,7 @@ service cloud.firestore {
     // ---- VALIDATION HELPERS ----
     function isValidUser(data) {
       return data.uid is string && (data.uid.size() > 0) &&
-             data.email is string && (data.email.size() > 0);
+             data.email is string;
     }
 
     function isValidConversation(data) {
@@ -102,6 +102,12 @@ service cloud.firestore {
 
     // ---- WAITLIST ----
     match /waitlist/{id} {
+      allow create: if true;
+      allow read: if false;
+    }
+
+    // ---- AUTH ERRORS ----
+    match /auth_errors/{id} {
       allow create: if true;
       allow read: if false;
     }

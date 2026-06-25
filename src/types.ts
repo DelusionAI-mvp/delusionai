@@ -1,4 +1,4 @@
- export interface EmotionalProfile {
+export interface EmotionalProfile {
   moodBaseline: number;
   moodKeywords: string[];
   communicationStyle: string;
@@ -46,7 +46,6 @@ export interface UserProfile {
   currentSituation?: string[];
   whyJoined?: string[];
   personality?: string[];
-  welcomeEmailSent?: boolean;
   activityMetrics?: {
     totalMayaTime: number; // in minutes
     totalPeerTime: number; // in minutes
@@ -56,6 +55,9 @@ export interface UserProfile {
   bio?: string;
   location?: string;
   matchScore?: number;
+  welcomeEmailSent?: boolean;
+  reportEmailSent?: boolean;
+  lastReportSentAt?: string;
 }
 
 export type ConnectionStatus = 'pending' | 'accepted' | 'rejected';
