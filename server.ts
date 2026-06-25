@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { Resend } from 'resend';
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai"; 
 
 // Ensure we load environment variables. If .env does not exist, fall back to .env.example
 dotenv.config();
