@@ -1,4 +1,4 @@
-import dotenv from "dotenv";
+ import dotenv from "dotenv";
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -15,8 +15,9 @@ if (!fs.existsSync(envPath) && fs.existsSync(envExamplePath)) {
   console.log("[Environment] Standard .env not found. Loaded variables from .env.example successfully.");
 }
 
+const app = express();
+
 async function startServer() {
-  const app = express();
   const PORT = 3000;
 
   // Copy logo to public directory if it exists, so we can use it in transactional emails
@@ -255,7 +256,22 @@ async function startServer() {
     }
   }
 
-  app.use(express.json());
+  // A robust body parsing middleware that handles both traditional Node and serverless (Vercel) pre-parsed bodies
+  app.use((req, res, next) => {
+    if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
+      // Body is already pre-parsed by the serverless hosting environment (Vercel)
+      return next();
+    }
+    if (typeof req.body === 'string') {
+      try {
+        req.body = JSON.parse(req.body);
+        return next();
+      } catch (e) {
+        // Fallback to express.json if parsing fails
+      }
+    }
+    express.json()(req, res, next);
+  });
 
   // API Health Check Route
   app.get("/api/health", (req, res) => {
@@ -800,9 +816,15 @@ Output JSON with updated traits and interests.`;
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  const isVercel = !!process.env.VERCEL;
+  if (!isVercel) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
 }
 
 startServer();
+
+export { app };
+export default app;
