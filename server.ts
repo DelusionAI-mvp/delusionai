@@ -1,4 +1,4 @@
- import dotenv from "dotenv";
+import dotenv from "dotenv";
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -23,8 +23,12 @@ async function startServer() {
   // Copy logo to public directory if it exists, so we can use it in transactional emails
   try {
     const srcPath = path.join(process.cwd(), 'src', 'assets', 'images', 'delusion-logo.png');
-    const destPath = path.join(process.cwd(), 'public', 'delusion-logo.png');
+    const publicDir = path.join(process.cwd(), 'public');
+    const destPath = path.join(publicDir, 'delusion-logo.png');
     if (fs.existsSync(srcPath)) {
+      if (!fs.existsSync(publicDir)) {
+        fs.mkdirSync(publicDir, { recursive: true });
+      }
       fs.copyFileSync(srcPath, destPath);
       console.log("Successfully copied delusion-logo.png to public folder for transactional emails.");
     }
@@ -39,6 +43,7 @@ async function startServer() {
 
   function getFromEmail(): string {
     let email = (process.env.EMAIL_FROM || process.env.RESEND_FROM_EMAIL || "").trim();
+
     if (email && email.includes("@") && !email.startsWith("re_")) {
       const parts = email.split("@");
       const localPart = parts[0]?.trim().toLowerCase() || "";
@@ -46,17 +51,19 @@ async function startServer() {
       
       // If domain is empty, incomplete, a standard placeholder, or gmail.com (which Resend cannot send from)
       if (!domain || domain === "" || domain.includes("yourdomain.com") || domain.includes("example.com") || domain === "gmail.com") {
+        // If the email or local part contains 'delusionai', use the verified domain 'support@delusionai.in'
+        if (email.toLowerCase().includes("delusionai") || localPart.includes("delusionai")) {
+          return "support@delusionai.in";
+        }
         return "onboarding@resend.dev";
       }
       if (domain === "resend.dev") {
         return "onboarding@resend.dev";
       }
-      if (localPart === "noreply" || localPart === "no-reply" || localPart === "no_reply") {
-        return `hello@${domain}`;
-      }
       return `${localPart}@${domain}`;
     }
-    return "onboarding@resend.dev";
+    // Default fallback to their verified domain
+    return "support@delusionai.in";
   }
 
   const RESEND_KEY = sanitizeApiKey(process.env.RESEND_API_KEY) || "re_beBVqBhS_HLLainSpMJFe6q8exx37YTsm";
@@ -575,7 +582,9 @@ Output JSON with updated traits and interests.`;
   });
   // API Route for Email Notifications
   app.post("/api/notify", async (req, res) => {
-    const { type, recipientEmail, senderName, recipientName, emotionalProfile, summary } = req.body;
+    console.log("[Email Notification API] Received payload:", JSON.stringify(req.body));
+    const { type: rawType, recipientEmail, senderName, recipientName, emotionalProfile, summary } = req.body || {};
+    const type = (rawType || "").toString().trim().toLowerCase();
     
     if (!resend) {
       console.warn("[Email Notification] Skipped: RESEND_API_KEY not configured.");
@@ -775,6 +784,32 @@ Output JSON with updated traits and interests.`;
       }
 
       const targetEmail = type === 'auth_error_alert' ? 'delusionai.in@gmail.com' : recipientEmail;
+
+      // Robust Fallback to guarantee no empty html or text fields are dispatched to Resend
+      if (!subject || !html || !text) {
+        console.warn(`[Email Notification] Generating fallback welcome template because subject/html/text is blank (type: "${type}")`);
+        subject = subject || `Welcome to DelusionAI - Your Premium Safe Space`;
+        html = html || `
+          <div style="font-family: sans-serif; padding: 30px; line-height: 1.6; color: #2B050C; background-color: #F5EFE6; max-width: 600px; margin: 0 auto; border-radius: 20px; border: 2px solid #8B1A2F;">
+            <div style="text-align: center; margin-bottom: 25px;">
+              <img src="${logoUrl}" alt="DelusionAI Logo" style="width: 130px; height: 130px; border-radius: 50%; border: 2px solid #8B1A2F; margin: 0 auto 15px auto; display: block; object-fit: cover;" referrerPolicy="no-referrer" />
+              <h1 style="color: #8B1A2F; margin: 0; font-size: 28px;">DelusionAI</h1>
+              <p style="text-transform: uppercase; letter-spacing: 0.25em; font-size: 10px; color: #625052; font-weight: bold; margin-top: 5px;">Welcome to Your Safe Space</p>
+            </div>
+            <hr style="border: none; border-top: 2px solid rgba(139,26,47,0.1); margin: 20px 0;" />
+            <p>Dear ${recipientName || 'Member'},</p>
+            <p>Thank you for being a part of <strong>DelusionAI</strong>. We are here to provide a safe space and connect you with peers who understand your journey.</p>
+
+            <div style="text-align: center; margin: 25px 0;">
+              <a href="${dashboardUrl}" style="display: inline-block; background-color: #8B1A2F; color: #FFFBF0; padding: 12px 24px; font-weight: bold; text-decoration: none; border-radius: 8px;">Get Started Now</a>
+            </div>
+
+            <p>Warmest regards,</p>
+            <p style="font-weight: bold; color: #8B1A2F;">The DelusionAI Team</p>
+          </div>
+        `;
+        text = text || `Dear ${recipientName || 'Member'},\n\nThank you for being a part of DelusionAI. We are here to provide a safe space and connect you with peers who understand your journey.\n\nAccess your dashboard here:\n${dashboardUrl}\n\nWarmest regards,\nThe DelusionAI Team`;
+      }
 
       const response = await sendEmailWithFallback(
         targetEmail,
