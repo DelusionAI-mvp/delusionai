@@ -764,9 +764,8 @@ export default function App() {
         // Check if the auth user account was created in the last 60 seconds as an extra safety flag
         const isNewAuthUser = user.metadata.creationTime && Math.abs(new Date().getTime() - new Date(user.metadata.creationTime).getTime()) < 60000;
 
-        // Use localStorage to guarantee we don't send multiple times on this browser session/client
-        const welcomeEmailLocalStorageKey = `delusion_welcome_sent_${user.uid}`;
-        const hasSentWelcomeLocally = localStorage.getItem(welcomeEmailLocalStorageKey) === 'true';
+        const welcomeEmailSessionKey = `delusion_welcome_triggered_${user.uid}`;
+        const hasTriggeredWelcomeInSession = sessionStorage.getItem(welcomeEmailSessionKey) === 'true';
 
         if (isNewProfile) {
           const newProfile: UserProfile = {
@@ -776,7 +775,7 @@ export default function App() {
             photoURL: user.photoURL || '',
             onboarded: false,
             matchRequestCount: 0,
-            welcomeEmailSent: true, // Set to true immediately in Firestore to prevent subsequent runs!
+            welcomeEmailSent: false, // Set to false initially, we will update upon successful dispatch!
             createdAt: new Date().toISOString(),
             activityMetrics: {
               lastActive: new Date().toISOString(),
@@ -786,9 +785,9 @@ export default function App() {
             }
           };
 
-          // Only set shouldSendWelcome if it hasn't been sent locally yet
-          if (!hasSentWelcomeLocally) {
-            localStorage.setItem(welcomeEmailLocalStorageKey, 'true');
+          // Trigger email if not yet sent in this browser session
+          if (!hasTriggeredWelcomeInSession) {
+            sessionStorage.setItem(welcomeEmailSessionKey, 'true');
             shouldSendWelcome = true;
             emailToNotify = newProfile.email;
             nameToNotify = newProfile.displayName || 'VIP Member';
@@ -804,16 +803,12 @@ export default function App() {
           const data = profileDoc.data() as UserProfile;
           
           // Genuinely check if welcomeEmailSent is already marked as true
-          // If it is not true, and this is a brand new auth user, and we haven't sent it locally, send it.
-          // IF they are an existing user who has been created > 60 seconds ago, we do NOT send the welcome email!
-          if (isNewAuthUser && data.welcomeEmailSent !== true && !hasSentWelcomeLocally) {
-            localStorage.setItem(welcomeEmailLocalStorageKey, 'true');
+          // If it is not true, and we haven't sent it in this browser session, send it!
+          if (data.welcomeEmailSent !== true && !hasTriggeredWelcomeInSession) {
+            sessionStorage.setItem(welcomeEmailSessionKey, 'true');
             shouldSendWelcome = true;
             emailToNotify = data.email || user.email || '';
             nameToNotify = data.displayName || displayNameToUse || user.displayName || 'VIP Member';
-
-            // Update the profile immediately to prevent any state delay
-            await updateDoc(profileRef, { welcomeEmailSent: true });
           }
 
           if (data.onboarded !== true) {
@@ -844,10 +839,19 @@ export default function App() {
 
         // Trigger Resend welcome or login email on the client side
         if (shouldSendWelcome && emailToNotify) {
-          sendWelcomeEmailWithResend(emailToNotify, nameToNotify).catch(err => {
-            console.error("Failed to send welcome email via Resend:", err);
+          sendWelcomeEmailWithResend(emailToNotify, nameToNotify).then(async (success) => {
+            if (success) {
+              console.log("[App.tsx] Welcome email sent successfully. Saving welcomeEmailSent: true to Firestore.");
+              await updateDoc(profileRef, { welcomeEmailSent: true });
+            } else {
+              console.warn("[App.tsx] Welcome email dispatch failed. Retrying on next reload.");
+              sessionStorage.removeItem(welcomeEmailSessionKey); // Let it retry on next reload
+            }
+          }).catch(err => {
+            console.error("[App.tsx] Welcome email error:", err);
+            sessionStorage.removeItem(welcomeEmailSessionKey);
           });
-        } else {
+        } else if (!shouldSendWelcome) {
           // Send login alert email if they are returning
           const loginEmailSessionKey = `delusion_login_sent_${user.uid}`;
           const hasSentLoginInSession = sessionStorage.getItem(loginEmailSessionKey) === 'true';
