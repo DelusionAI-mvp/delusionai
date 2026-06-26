@@ -67,7 +67,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       text = `Dear ${recipientName || 'Member'},\n\nThank you for joining the exclusive DelusionAI Early Access Waitlist! We are absolutely thrilled to welcome you to our curated mental health and emotional support community.\n\nOur team is currently refining Maya AI and our deep Similar Mindsets Peer Matching systems to ensure a premium, secure, and deeply comforting experience. Since your account has been registered successfully, you are now fully enrolled in our VIP early access list!\n\nWe will contact you at ${recipientEmail} with an official invitation the moment we begin onboarding members for live interactive experiences. In the meantime, you are welcome to log in to your dashboard to view your queue and synced preference profiles.\n\nWarmest regards,\nThe DelusionAI Team`;
     }
 
-    const fromEmail = process.env.EMAIL_FROM || process.env.RESEND_FROM_EMAIL || 'DelusionAI <hello@mail.delusionai.in>';
+    const fromEmail = process.env.EMAIL_FROM || process.env.RESEND_FROM_EMAIL || 'DelusionAI <support@delusionai.in>';
 
     await resend.emails.send({
       from: fromEmail,
