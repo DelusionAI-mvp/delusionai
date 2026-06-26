@@ -240,14 +240,14 @@ async function startServer() {
     };
 
     try {
-      // display name = "support@delusionai.in", email = "support@delusionai.in" (domain delusionai.in is verified!)
-      let fromAddress = "support@delusionai.in <support@delusionai.in>";
+      // use verified sender "DelusionAI <support@delusionai.in>" directly for maximum client trust
+      let fromAddress = "DelusionAI <support@delusionai.in>";
       let response = await trySend(fromAddress);
 
       if (response && response.error) {
         console.warn(`[Email Notification] Primary send from "${fromAddress}" failed with error:`, response.error);
         
-        fromAddress = "DelusionAI <support@delusionai.in>";
+        fromAddress = "support@delusionai.in <support@delusionai.in>";
         response = await trySend(fromAddress);
 
         if (response && response.error) {
@@ -358,13 +358,14 @@ async function startServer() {
     };
 
     try {
-      let fromAddress = "support@delusionai.in <support@delusionai.in>";
+      // use verified sender "DelusionAI <support@delusionai.in>" directly for maximum client trust
+      let fromAddress = "DelusionAI <support@delusionai.in>";
       let response = await trySend(fromAddress);
 
       if (response && response.error) {
         console.warn(`[Send Report API] Primary send from "${fromAddress}" failed with error:`, response.error);
         
-        fromAddress = "DelusionAI <support@delusionai.in>";
+        fromAddress = "support@delusionai.in <support@delusionai.in>";
         response = await trySend(fromAddress);
 
         if (response && response.error) {
