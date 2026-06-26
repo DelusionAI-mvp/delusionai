@@ -178,13 +178,13 @@ export default function MayaChat() {
   const [hasSentMessageThisSession, setHasSentMessageThisSession] = useState(false);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(true);
 
-  // Randomized exchanges (5 to 6 exchanges) before recommendation.
+  // Randomized exchanges (5 to 7 exchanges) before recommendation.
   const [maxExchanges] = useState<number>(() => {
-    return Math.floor(Math.random() * 2) + 5; // Generates 5 or 6
+    return Math.floor(Math.random() * 3) + 5; // Generates 5, 6, or 7
   });
 
-  // Exactly maxExchanges triggers the pause / cooldown trigger
-  const exchangesNeeded = maxExchanges;
+  // Exactly 8 exchanges triggers the pause / cooldown trigger
+  const exchangesNeeded = 8;
 
   const [refreshCount, setRefreshCount] = useState(0);
   const [timeRemaining, setTimeRemaining] = useState<number>(() => {
@@ -202,8 +202,8 @@ export default function MayaChat() {
   const now = new Date();
   const userMessagesCount = messages.filter(m => m.role === 'user').length;
   
-  // Cooldown is active if user messages are exactly maxExchanges or more, or if we have an active timer (only for non-premium users)
-  const isCooldownActive = !profile?.isPremium && (userMessagesCount >= maxExchanges || timeRemaining > 0 || !!(profile?.cooldownEnd && new Date(profile.cooldownEnd) > now));
+  // Cooldown is active if user messages are exactly 8 or more, or if we have an active timer (only for non-premium users)
+  const isCooldownActive = !profile?.isPremium && (userMessagesCount >= 8 || timeRemaining > 0 || !!(profile?.cooldownEnd && new Date(profile.cooldownEnd) > now));
   
   // Recommendations shown when userMessageCount exceeds the randomized threshold OR if cooldown is active
   const isSessionCompleted = (hasSentMessageThisSession && userMessagesCount >= maxExchanges) || isCooldownActive;
@@ -211,16 +211,16 @@ export default function MayaChat() {
   const [cooldownRemainingStr, setCooldownRemainingStr] = useState<string>('');
 
   useEffect(() => {
-    if (!profile?.isPremium && userMessagesCount >= maxExchanges && timeRemaining === 0) {
+    if (!profile?.isPremium && userMessagesCount >= 8 && timeRemaining === 0) {
       const saved = localStorage.getItem('maya_cooldown_end');
       if (!saved) {
-        const endTime = new Date(Date.now() + 5 * 60 * 60 * 1000).toISOString(); // 5 hours
+        const endTime = new Date(Date.now() + 90 * 60 * 1000).toISOString(); // 90 minutes
         localStorage.setItem('maya_cooldown_end', endTime);
-        setTimeRemaining(18000); // 18000 seconds (5 hours)
+        setTimeRemaining(5400); // 5400 seconds (90 minutes)
         setShowCooldownModal(true);
       }
     }
-  }, [userMessagesCount, timeRemaining, profile?.isPremium, maxExchanges]);
+  }, [userMessagesCount, timeRemaining, profile?.isPremium]);
 
   useEffect(() => {
     if (timeRemaining > 0) {
@@ -321,20 +321,9 @@ export default function MayaChat() {
     return `You have reached your free limit. Come back after ${hours}:${minutes} ${ampm}.`;
   };
 
-  const getClaudeStyleMessage = (dateStr?: string) => {
-    if (!dateStr) return "You're out of free messages.";
-    const d = new Date(dateStr);
-    let hours = d.getHours();
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    hours = hours % 12;
-    hours = hours ? hours : 12;
-    const minutes = String(d.getMinutes()).padStart(2, '0');
-    return `You're out of free messages until ${hours}:${minutes} ${ampm}`;
-  };
-
   const formatComebackTime = (dateStr?: string) => {
     if (!dateStr) return "";
-    return getClaudeStyleMessage(dateStr);
+    return getComebackMessage(dateStr);
   };
 
   useEffect(() => {
@@ -803,10 +792,9 @@ export default function MayaChat() {
       return;
     }
 
-    if (!profile.isPremium && (profile.messagesUsed || 0) >= maxExchanges) {
+    if (!profile.isPremium && (profile.messagesUsed || 0) >= 8) {
       setInputText('');
-      const endTime = profile.cooldownEnd || localStorage.getItem('maya_cooldown_end') || new Date(Date.now() + 5 * 60 * 60 * 1000).toISOString();
-      alert(getClaudeStyleMessage(endTime));
+      alert("You have reached your limit of 8 exchanges. Please take a temporary pause or upgrade for unlimited!");
       setShowPremiumModal(true);
       return;
     }
@@ -820,10 +808,10 @@ export default function MayaChat() {
     setHasSentMessageThisSession(true);
 
     const userMsgCount = newMessages.filter(m => m.role === 'user').length;
-    // Triggers recommendation on meeting randomized threshold between 5 and 6
+    // Triggers recommendation on meeting randomized threshold between 5 and 7
     // Still recommend for both basic and premium users in the same way (at the threshold)
     const shouldRecommend = (userMsgCount === maxExchanges);
-    const isSessionEnded = !profile?.isPremium && userMsgCount > maxExchanges;
+    const isSessionEnded = !profile?.isPremium && userMsgCount > 8;
 
     try {
       const convRef = doc(db, 'conversations_maya', user.uid);
@@ -867,7 +855,7 @@ export default function MayaChat() {
               updatedAt: new Date().toISOString()
             };
 
-            const cooldownDuration = 5 * 60 * 60 * 1000; // 5 hours
+            const cooldownDuration = 90 * 60 * 1000; // 90 minutes
             userUpdate.cooldownEnd = new Date(Date.now() + cooldownDuration).toISOString();
             // Reset daily messages count
             userUpdate.messagesUsed = 0; 
@@ -949,17 +937,6 @@ export default function MayaChat() {
             emotionalProfile: newEmotionalProfile as EmotionalProfile,
             updatedAt: new Date().toISOString()
           };
-
-          const isLimitReached = !profile?.isPremium && ((profile.messagesUsed || 0) + 1 >= maxExchanges);
-          if (isLimitReached) {
-            const cooldownDuration = 5 * 60 * 60 * 1000; // 5 hours
-            const endTime = new Date(Date.now() + cooldownDuration).toISOString();
-            userUpdate.cooldownEnd = endTime;
-            userUpdate.messagesUsed = 0; // Reset counter for next time
-            localStorage.setItem('maya_cooldown_end', endTime);
-            setTimeRemaining(18000); // 5 hours
-            setShowCooldownModal(true);
-          }
 
           if (shouldRecommend) {
             userUpdate.recommendationRefreshNeeded = true;
@@ -1085,16 +1062,11 @@ export default function MayaChat() {
             <button
               type="button"
               onClick={() => sendCompanionReport(true)}
-              disabled={isSendingReport || userMessagesCount === 0 || (isReportLocked && reportResult?.status !== 'success')}
-              title={userMessagesCount === 0 
-                ? "Send a message to Maya first to compile your report" 
-                : isReportLocked 
-                  ? `Your companion report is available once a week. Next report is available in ${getRemainingDays()} days.`
-                  : "Compile & Email Companion Discovery Report"
-              }
+              disabled={isSendingReport || userMessagesCount === 0}
+              title={userMessagesCount === 0 ? "Send a message to Maya first to compile your report" : "Compile & Email Companion Discovery Report"}
               className={`flex items-center gap-1.5 sm:gap-2 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl font-black text-[8px] sm:text-[9.5px] uppercase tracking-wider transition-all duration-300 border cursor-pointer select-none
-                ${userMessagesCount === 0 || (isReportLocked && reportResult?.status !== 'success')
-                  ? 'opacity-35 cursor-not-allowed border-brand-primary/5 text-text-muted bg-transparent'
+                ${userMessagesCount === 0
+                  ? 'opacity-30 cursor-not-allowed border-brand-primary/5 text-text-muted bg-transparent'
                   : isSendingReport
                     ? 'border-brand-primary/30 text-brand-primary bg-brand-primary/5 animate-pulse'
                     : reportResult?.status === 'success'
@@ -1110,9 +1082,7 @@ export default function MayaChat() {
                     ? "Compiling..." 
                     : reportResult?.status === "success" 
                       ? "Report Dispatched" 
-                      : isReportLocked
-                        ? `Locked (${getRemainingDays()}d)`
-                        : "Email My Report"
+                      : "Email My Report"
                 }
               </span>
             </button>
@@ -1320,9 +1290,7 @@ export default function MayaChat() {
       >
         {isCooldownActive ? (
           <div className="max-w-4xl mx-auto text-center p-6 border-2 border-brand-primary/20 bg-brand-primary/5 rounded-[24px] sm:rounded-[32px] space-y-4">
-            <h3 className="font-display font-black text-lg sm:text-xl text-brand-primary uppercase italic tracking-wider">
-              {profile?.cooldownEnd ? getClaudeStyleMessage(profile.cooldownEnd) : "Evaluation Cooldown Active"}
-            </h3>
+            <h3 className="font-display font-black text-lg sm:text-xl text-brand-primary uppercase italic tracking-wider">Evaluation Cooldown Active</h3>
             <p className="text-xs sm:text-sm text-text-base font-medium max-w-xl mx-auto leading-relaxed">
               We temporarily pause longer conversations to protect your emotional space. Maya has finished processing your situation and highly encourages you to take some time to rest and reflect.
             </p>
@@ -1436,9 +1404,7 @@ export default function MayaChat() {
               </div>
               
               <div className="space-y-3">
-                <h2 className="text-xl md:text-2xl font-display font-black uppercase tracking-tight italic text-text-base leading-tight">
-                  {profile?.cooldownEnd ? getClaudeStyleMessage(profile.cooldownEnd) : "Evaluation Cooldown"}
-                </h2>
+                <h2 className="text-xl md:text-2xl font-display font-black uppercase tracking-tight italic text-text-base leading-tight">Evaluation Cooldown</h2>
                 <p className="text-text-muted font-bold uppercase tracking-[0.12em] text-[10px] leading-loose">
                   You have reached your daily conversational exchange threshold. Maya has completed your emotional mapping and encourages you to take a mindful rest.
                 </p>
@@ -1496,17 +1462,15 @@ export default function MayaChat() {
                 <button
                   type="button"
                   onClick={() => sendCompanionReport(true)}
-                  disabled={isSendingReport || userMessagesCount === 0 || (isReportLocked && reportResult?.status !== 'success')}
+                  disabled={isSendingReport || userMessagesCount === 0}
                   className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all duration-300 border flex items-center justify-center gap-1.5 cursor-pointer select-none
                     ${userMessagesCount === 0
                       ? 'opacity-30 cursor-not-allowed border-brand-primary/5 text-text-muted bg-transparent'
                       : isSendingReport
                         ? 'border-brand-primary/30 text-brand-primary bg-brand-primary/5 animate-pulse animate-duration-1000'
-                        : isReportLocked && reportResult?.status !== 'success'
-                          ? 'opacity-50 cursor-not-allowed border-brand-primary/10 text-text-muted bg-transparent'
-                          : reportResult?.status === 'success'
-                            ? 'border-emerald-500/30 text-emerald-500 bg-emerald-500/[0.04]'
-                            : 'btn-primary border-transparent'
+                        : reportResult?.status === 'success'
+                          ? 'border-emerald-500/30 text-emerald-500 bg-emerald-500/[0.04]'
+                          : 'btn-primary border-transparent'
                     }`}
                 >
                   <Sparkles size={12} className={isSendingReport ? "animate-spin text-brand-primary" : ""} />
@@ -1517,9 +1481,7 @@ export default function MayaChat() {
                         ? "Mailing..." 
                         : reportResult?.status === "success" 
                           ? "Report Sent" 
-                          : isReportLocked
-                            ? `Locked (${getRemainingDays()}d)`
-                            : "Email My Report"
+                          : "Email My Report"
                     }
                   </span>
                 </button>
