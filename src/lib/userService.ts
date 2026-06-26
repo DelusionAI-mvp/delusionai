@@ -89,7 +89,7 @@ export const MOCK_COMPANIONS: UserProfile[] = [
       moodBaseline: 72,
       moodKeywords: ["social_anxiety", "overthinking", "sensitive_soul"],
       communicationStyle: "soft and encouraging",
-      needs: "Slow paced, pressure-free validation and sweet companionship",
+      needs: "Slow paced, pressure-free validation and supportive companionship",
       traits: ["Sensitive", "Warm", "Gentle"],
       interests: ["Tea Appreciation", "Painting", "Cats"],
       personalityType: "Quiet Supporter",
