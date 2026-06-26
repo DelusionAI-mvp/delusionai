@@ -41,10 +41,68 @@ async function startServer() {
     return key.replace(/[^\x20-\x7E]/g, "").trim();
   }
 
-  // Initialize Resend Client
-  const RESEND_KEY = sanitizeApiKey(process.env.RESEND_API_KEY) || "re_beBVqBhS_HLLainSpMJFe6q8exx37YTsm";
-  const resend = RESEND_KEY ? new Resend(RESEND_KEY) : null;
-  console.log("[Resend Service] Init: API Key exists:", !!RESEND_KEY);
+  // Initialize Dual Resend Clients for maximum reliability (Primary and Fallback)
+  const primaryApiKey = sanitizeApiKey(process.env.RESEND_API_KEY);
+  const fallbackApiKey = "re_beBVqBhS_HLLainSpMJFe6q8exx37YTsm";
+
+  const primaryResend = primaryApiKey ? new Resend(primaryApiKey) : null;
+  const fallbackResend = new Resend(fallbackApiKey);
+
+  console.log("[Resend Service] Init: Primary Key Exists:", !!primaryApiKey, "Fallback Key Exists: true");
+
+  // Core email dispatcher trying multiple client + sender combinations for zero failures
+  async function sendEmailWithResend(params: {
+    to: string;
+    subject: string;
+    html: string;
+    text: string;
+    replyTo?: string;
+  }) {
+    const clients = [];
+    if (primaryResend && primaryApiKey !== fallbackApiKey) {
+      clients.push({ client: primaryResend, label: "Primary API Key" });
+    }
+    clients.push({ client: fallbackResend, label: "Fallback API Key (Hardcoded)" });
+
+    const fromAddresses = [
+      "DelusionAI <support@delusionai.in>",
+      "support@delusionai.in <support@delusionai.in>",
+      "DelusionAI <onboarding@resend.dev>"
+    ];
+
+    let lastError: any = null;
+
+    for (const { client, label } of clients) {
+      for (const fromAddress of fromAddresses) {
+        try {
+          console.log(`[Resend Engine] Attempting send using ${label} from "${fromAddress}" to "${params.to}"`);
+          const response = await client.emails.send({
+            from: fromAddress,
+            to: params.to,
+            subject: params.subject,
+            html: params.html,
+            text: params.text,
+            replyTo: params.replyTo || "delusionai.in@gmail.com"
+          });
+
+          if (response && response.error) {
+            console.warn(`[Resend Engine] ${label} with from "${fromAddress}" returned error:`, response.error);
+            lastError = response.error;
+            continue; // try next combination
+          }
+
+          console.log(`[Resend Engine] SUCCESS with ${label} using from "${fromAddress}"! Message ID:`, response?.data?.id);
+          return response;
+        } catch (err: any) {
+          console.warn(`[Resend Engine] ${label} with from "${fromAddress}" threw exception:`, err);
+          lastError = err;
+          // continue to next combination
+        }
+      }
+    }
+
+    throw lastError || new Error("All Resend delivery attempts failed.");
+  }
 
   let aiClient: GoogleGenAI | null = null;
   function getAI(): GoogleGenAI {
@@ -166,11 +224,6 @@ async function startServer() {
       return res.status(400).json({ error: "recipientEmail is required" });
     }
 
-    if (!resend) {
-      console.warn("[Email Notification] Resend is not configured.");
-      return res.status(500).json({ error: "Resend client not initialized" });
-    }
-
     const userName = recipientName || "VIP Member";
 
     // Fallbacks to guarantee subject, html, and text are NEVER blank strings to Resend API
@@ -226,43 +279,14 @@ async function startServer() {
       textBody = htmlBody.replace(/<[^>]*>/g, " ").trim();
     }
 
-    // Try various from email address configurations to ensure zero-error delivery!
-    const trySend = async (fromAddress: string) => {
-      console.log(`[Email Notification] Attempting send from: "${fromAddress}" to: "${targetEmail}"`);
-      return await resend.emails.send({
-        from: fromAddress,
+    try {
+      const response = await sendEmailWithResend({
         to: targetEmail,
         subject: subject,
         html: htmlBody,
         text: textBody,
         replyTo: "delusionai.in@gmail.com"
       });
-    };
-
-    try {
-      // use verified sender "DelusionAI <support@delusionai.in>" directly for maximum client trust
-      let fromAddress = "DelusionAI <support@delusionai.in>";
-      let response = await trySend(fromAddress);
-
-      if (response && response.error) {
-        console.warn(`[Email Notification] Primary send from "${fromAddress}" failed with error:`, response.error);
-        
-        fromAddress = "support@delusionai.in <support@delusionai.in>";
-        response = await trySend(fromAddress);
-
-        if (response && response.error) {
-          console.warn(`[Email Notification] Fallback send from "${fromAddress}" failed with error:`, response.error);
-
-          // Ultimate sandbox/testing fallback: onboarding@resend.dev
-          fromAddress = "DelusionAI <onboarding@resend.dev>";
-          response = await trySend(fromAddress);
-        }
-      }
-
-      if (response && response.error) {
-        console.error("[Email Notification] All Resend email dispatch options failed:", response.error);
-        return res.status(500).json({ error: response.error.message || "Failed to dispatch email via Resend" });
-      }
 
       console.log("[Email Notification] Welcome email sent successfully:", response?.data);
       return res.json({ success: true, data: response?.data });
@@ -279,11 +303,6 @@ async function startServer() {
 
     if (!recipientEmail) {
       return res.status(400).json({ error: "recipientEmail is required" });
-    }
-
-    if (!resend) {
-      console.warn("[Send Report API] Resend is not configured.");
-      return res.status(500).json({ error: "Resend client not initialized" });
     }
 
     const userName = recipientName || "Companion";
@@ -345,41 +364,14 @@ async function startServer() {
 
     const textBody = `Dear ${userName},\n\nYour interactive conversation session with Maya AI has been summarized. Based on your shared thoughts, Maya has prepared your customized Oasis Discovery Report:\n\nEmotional Alignment Profile:\n- Baseline Mood Alignment: ${moodBaseline}\n- Primary Needs: ${needs}\n- Personality & Traits: ${traits}\n- Interests & Coping: ${coping}\n\n"Maya is almost ready to introduce you to your customized peer matches. Let's step forward together."\n\nWarmest regards,\nThe DelusionAI Team\n\nEmail sent via Resend`;
 
-    const trySend = async (fromAddress: string) => {
-      console.log(`[Send Report API] Attempting send from: "${fromAddress}" to: "${recipientEmail}"`);
-      return await resend.emails.send({
-        from: fromAddress,
+    try {
+      const response = await sendEmailWithResend({
         to: recipientEmail,
         subject: subject,
         html: htmlBody,
         text: textBody,
         replyTo: "delusionai.in@gmail.com"
       });
-    };
-
-    try {
-      // use verified sender "DelusionAI <support@delusionai.in>" directly for maximum client trust
-      let fromAddress = "DelusionAI <support@delusionai.in>";
-      let response = await trySend(fromAddress);
-
-      if (response && response.error) {
-        console.warn(`[Send Report API] Primary send from "${fromAddress}" failed with error:`, response.error);
-        
-        fromAddress = "support@delusionai.in <support@delusionai.in>";
-        response = await trySend(fromAddress);
-
-        if (response && response.error) {
-          console.warn(`[Send Report API] Fallback send from "${fromAddress}" failed with error:`, response.error);
-
-          fromAddress = "DelusionAI <onboarding@resend.dev>";
-          response = await trySend(fromAddress);
-        }
-      }
-
-      if (response && response.error) {
-        console.error("[Send Report API] All Resend email dispatch options failed:", response.error);
-        return res.status(500).json({ error: response.error.message || "Failed to dispatch email via Resend" });
-      }
 
       console.log("[Send Report API] Companion report sent successfully:", response?.data);
       return res.json({ status: "success", provider: "Resend", data: response?.data });
