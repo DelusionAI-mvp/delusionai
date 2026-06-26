@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { Resend } from 'resend';
-import { GoogleGenAI, Type } from "@google/genai"; 
+import { GoogleGenAI, Type } from "@google/genai";
 
 // Ensure we load environment variables. If .env does not exist, fall back to .env.example
 dotenv.config();
@@ -42,27 +42,8 @@ async function startServer() {
   }
 
   function getFromEmail(): string {
-    let email = (process.env.EMAIL_FROM || process.env.RESEND_FROM_EMAIL || "").trim();
-
-    if (email && email.includes("@") && !email.startsWith("re_")) {
-      const parts = email.split("@");
-      const localPart = parts[0]?.trim().toLowerCase() || "";
-      const domain = parts[1]?.trim().toLowerCase() || "";
-      
-      // If domain is empty, incomplete, a standard placeholder, or gmail.com (which Resend cannot send from)
-      if (!domain || domain === "" || domain.includes("yourdomain.com") || domain.includes("example.com") || domain === "gmail.com") {
-        // If the email or local part contains 'delusionai', use the verified domain 'support@delusionai.in'
-        if (email.toLowerCase().includes("delusionai") || localPart.includes("delusionai")) {
-          return "support@delusionai.in";
-        }
-        return "onboarding@resend.dev";
-      }
-      if (domain === "resend.dev") {
-        return "onboarding@resend.dev";
-      }
-      return `${localPart}@${domain}`;
-    }
-    // Default fallback to their verified domain
+    // The user's verified domain is delusionai.in, and the desired sender is support@delusionai.in.
+    // Setting this explicitly eliminates any potential subdomain or fallback misconfigurations.
     return "support@delusionai.in";
   }
 
@@ -128,11 +109,49 @@ async function startServer() {
       return { error: { message: "Email service not configured" } };
     }
 
-    const rawFrom = customFrom || getFromEmail();
-    const fromEmail = rawFrom.includes('<') ? rawFrom : `DelusionAI <${rawFrom}>`;
-    const emailSettings = adjustSandboxRecipient(to, html, text, subject, rawFrom);
+    // Double layer safeguard: Ensure subject, html, and text are NEVER blank strings
+    let finalSubject = (subject || "").toString().trim();
+    let finalHtml = (html || "").toString().trim();
+    let finalText = (text || "").toString().trim();
 
-    console.log(`[Email Notification] Attempting dispatch. From: "${fromEmail}" | To: "${emailSettings.target}" (originally for: "${to}")`);
+    const logoUrl = "https://delusionai.in/delusion-logo.png";
+    const dashboardUrl = "https://delusionai.in/dashboard";
+
+    if (!finalSubject) {
+      finalSubject = "Notification from DelusionAI";
+    }
+    if (!finalHtml) {
+      console.warn("[Email Notification] Warning: sendEmailWithFallback received an empty HTML body. Overriding with fallback.");
+      finalHtml = `
+        <div style="font-family: sans-serif; padding: 30px; line-height: 1.6; color: #2B050C; background-color: #F5EFE6; max-width: 600px; margin: 0 auto; border-radius: 20px; border: 2px solid #8B1A2F;">
+          <div style="text-align: center; margin-bottom: 25px;">
+            <img src="${logoUrl}" alt="DelusionAI Logo" style="width: 130px; height: 130px; border-radius: 50%; border: 2px solid #8B1A2F; margin: 0 auto 15px auto; display: block; object-fit: cover;" referrerPolicy="no-referrer" />
+            <h1 style="color: #8B1A2F; margin: 0; font-size: 28px;">DelusionAI</h1>
+          </div>
+          <hr style="border: none; border-top: 2px solid rgba(139,26,47,0.1); margin: 20px 0;" />
+          <p>Hello,</p>
+          <p>We are writing to welcome you and keep you updated on your <strong>DelusionAI</strong> secure account activities.</p>
+          <div style="text-align: center; margin: 25px 0;">
+            <a href="${dashboardUrl}" style="display: inline-block; background-color: #8B1A2F; color: #FFFBF0; padding: 12px 24px; font-weight: bold; text-decoration: none; border-radius: 8px;">Access Your Dashboard</a>
+          </div>
+          <p>Warmest regards,</p>
+          <p style="font-weight: bold; color: #8B1A2F;">The DelusionAI Team</p>
+        </div>
+      `;
+    }
+    if (!finalText) {
+      console.warn("[Email Notification] Warning: sendEmailWithFallback received an empty Text body. Overriding with fallback.");
+      finalText = `Hello,\n\nWe are writing to welcome you and keep you updated on your DelusionAI secure account activities.\n\nAccess your dashboard here:\n${dashboardUrl}\n\nWarmest regards,\nThe DelusionAI Team`;
+    }
+
+    const rawFrom = customFrom || getFromEmail();
+    
+    // Format display name as "support@delusionai.in" and email as "support@delusionai.in"
+    const fromEmail = "support@delusionai.in <support@delusionai.in>";
+    
+    const emailSettings = adjustSandboxRecipient(to, finalHtml, finalText, finalSubject, rawFrom);
+
+    console.log(`[Email Notification] Attempting dispatch. From: "${fromEmail}" | To: "${emailSettings.target}" (originally: "${to}") | Subject: "${emailSettings.subject}" | HTML size: ${emailSettings.html.length} | Text size: ${emailSettings.text.length}`);
 
     try {
       let response = await resend.emails.send({
@@ -161,7 +180,7 @@ async function startServer() {
           console.log("[Email Notification] Automatic fallback triggered. Retrying with onboarding@resend.dev...");
           const fallbackFromRaw = "onboarding@resend.dev";
           const fallbackFromEmail = `DelusionAI <${fallbackFromRaw}>`;
-          const fallbackSettings = adjustSandboxRecipient(to, html, text, subject, fallbackFromRaw);
+          const fallbackSettings = adjustSandboxRecipient(to, finalHtml, finalText, finalSubject, fallbackFromRaw);
 
           response = await resend.emails.send({
             from: fallbackFromEmail,
