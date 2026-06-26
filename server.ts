@@ -645,7 +645,7 @@ Your goal: Speak beautifully and comforting, one or two brief, highly relevant s
       const contents = contentsObj.length > 0 ? contentsObj : [{ role: 'user', parts: [{ text: "Hello" }] }];
 
       const response = await generateContentWithRetry(ai, {
-        model: 'gemini-3.1-flash-lite',
+        model: 'gemini-3.5-flash',
         contents,
         config: {
           systemInstruction: systemPrompt,
@@ -698,7 +698,7 @@ Format: One or two sentences max. Focus on:
     try {
       const ai = getAI();
       const response = await generateContentWithRetry(ai, {
-        model: 'gemini-3.1-flash-lite',
+        model: 'gemini-3.5-flash',
         contents: prompt,
         config: {
           systemInstruction: "Create a short user memory summary for an AI companion. Be objective and concise. Respond in simple English (approx. A1/A2 level) with short sentences.",
@@ -728,7 +728,7 @@ Output JSON with updated traits and interests.`;
     try {
       const ai = getAI();
       const response = await generateContentWithRetry(ai, {
-        model: 'gemini-3.1-flash-lite',
+        model: 'gemini-3.5-flash',
         contents: prompt,
         config: {
           systemInstruction: "Analyze the user's conversation history with Maya. Build and continuously refine a structured emotional and personality profile. Extract ageGroup (e.g., '18-22', '23-29', '30-39', '40-49', '50+'), emotionalTags (such as: 'lonely', 'anxious', 'overthinker', 'burnout', 'relationship stress', 'career stress'), personalityTraits (such as: 'introvert', 'extrovert'), interests (such as: 'gaming', 'music'), supportStyle, communicationStyle, and activityLevel. Output JSON only. Merge new findings with the previous profile and make sure to populate all parameters.",
