@@ -122,6 +122,93 @@ async function startServer() {
     throw lastError || new Error("All Resend delivery attempts failed.");
   }
 
+  // Unified email sender with EmailJS priority and Resend fallback
+  async function sendEmail(params: {
+    to: string;
+    subject: string;
+    html: string;
+    text: string;
+    userName?: string;
+    replyTo?: string;
+    reportData?: any;
+  }) {
+    const serviceId = process.env.EMAILJS_SERVICE_ID || "service_j77zl3r";
+    const templateId = process.env.EMAILJS_TEMPLATE_ID || "template_18pa98k";
+    const publicKey = process.env.EMAILJS_PUBLIC_KEY ? process.env.EMAILJS_PUBLIC_KEY.trim() : "";
+    const privateKey = process.env.EMAILJS_PRIVATE_KEY ? process.env.EMAILJS_PRIVATE_KEY.trim() : "";
+
+    if (publicKey) {
+      console.log(`[Email Service] EMAILJS_PUBLIC_KEY detected. Attempting dispatch with EmailJS (Service: ${serviceId}, Template: ${templateId})`);
+      try {
+        const payload: any = {
+          service_id: serviceId,
+          template_id: templateId,
+          user_id: publicKey,
+          template_params: {
+            to_name: params.userName || "VIP Member",
+            to_email: params.to,
+            recipient_name: params.userName || "VIP Member",
+            recipient_email: params.to,
+            user_name: params.userName || "VIP Member",
+            user_email: params.to,
+            subject: params.subject,
+            message: params.text || params.html.replace(/<[^>]*>/g, " ").trim(),
+            html: params.html,
+            moodBaseline: params.reportData?.moodBaseline || "Reflective",
+            needs: params.reportData?.needs || "Comforting connection",
+            traits: params.reportData?.traits || "Sensitive, Resilient",
+            coping: params.reportData?.coping || "Mindfulness, Self-care",
+            currentSituation: params.reportData?.currentSituation ? (Array.isArray(params.reportData.currentSituation) ? params.reportData.currentSituation.join(', ') : params.reportData.currentSituation) : "",
+            whyJoined: params.reportData?.whyJoined ? (Array.isArray(params.reportData.whyJoined) ? params.reportData.whyJoined.join(', ') : params.reportData.whyJoined) : ""
+          }
+        };
+
+        if (privateKey) {
+          payload.accessToken = privateKey;
+        }
+
+        const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`EmailJS API Error: ${errText} (Status: ${response.status})`);
+        }
+
+        console.log(`[Email Service] EmailJS dispatch SUCCESS to "${params.to}"!`);
+        
+        // Log in memory
+        const emailId = `emailjs_${Date.now()}`;
+        sentEmailsLog.push({
+          id: emailId,
+          from: "EmailJS API",
+          to: [params.to],
+          subject: params.subject,
+          html: params.html,
+          text: params.text,
+          created_at: new Date().toISOString(),
+          last_event: "delivered",
+          object: "email"
+        });
+
+        return { data: { id: emailId }, provider: "EmailJS" };
+      } catch (err: any) {
+        console.warn("[Email Service] EmailJS dispatch failed, falling back to Resend:", err.message || err);
+      }
+    } else {
+      console.log("[Email Service] EMAILJS_PUBLIC_KEY not set in secrets. Using Resend as primary.");
+    }
+
+    // Fallback to Resend
+    const res = await sendEmailWithResend(params);
+    return { data: res?.data || { id: `resend_${Date.now()}` }, provider: "Resend" };
+  }
+
   let aiClient: GoogleGenAI | null = null;
   function getAI(): GoogleGenAI {
     if (!aiClient) {
@@ -343,16 +430,17 @@ async function startServer() {
     }
 
     try {
-      const response = await sendEmailWithResend({
+      const response = await sendEmail({
         to: targetEmail,
         subject: subject,
         html: htmlBody,
         text: textBody,
+        userName: userName,
         replyTo: "delusionai.in@gmail.com"
       });
 
-      console.log("[Email Notification] Welcome email sent successfully:", response?.data);
-      return res.json({ success: true, data: response?.data });
+      console.log(`[Email Notification] Welcome email sent successfully:`, response?.data, "Provider:", response?.provider);
+      return res.json({ success: true, data: response?.data, provider: response?.provider });
     } catch (err: any) {
       console.error("[Email Notification] Exception during email dispatch:", err);
       return res.status(500).json({ error: err.message || "Internal exception during email dispatch" });
@@ -428,16 +516,25 @@ async function startServer() {
     const textBody = `Dear ${userName},\n\nYour interactive conversation session with Maya AI has been summarized. Based on your shared thoughts, Maya has prepared your customized Oasis Discovery Report:\n\nEmotional Alignment Profile:\n- Baseline Mood Alignment: ${moodBaseline}\n- Primary Needs: ${needs}\n- Personality & Traits: ${traits}\n- Interests & Coping: ${coping}\n\n"Maya is almost ready to introduce you to your customized peer matches. Let's step forward together."\n\nWarmest regards,\nThe DelusionAI Team\n\nEmail sent via Resend`;
 
     try {
-      const response = await sendEmailWithResend({
+      const response = await sendEmail({
         to: recipientEmail,
         subject: subject,
         html: htmlBody,
         text: textBody,
-        replyTo: "delusionai.in@gmail.com"
+        userName: userName,
+        replyTo: "delusionai.in@gmail.com",
+        reportData: {
+          moodBaseline,
+          needs,
+          traits,
+          coping,
+          currentSituation,
+          whyJoined
+        }
       });
 
-      console.log("[Send Report API] Companion report sent successfully:", response?.data);
-      return res.json({ status: "success", provider: "Resend", data: response?.data });
+      console.log("[Send Report API] Companion report sent successfully:", response?.data, "Provider:", response?.provider);
+      return res.json({ status: "success", provider: response?.provider, data: response?.data });
     } catch (err: any) {
       console.error("[Send Report API] Exception during email dispatch:", err);
       return res.status(500).json({ error: err.message || "Internal exception during email dispatch" });
