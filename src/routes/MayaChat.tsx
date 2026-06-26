@@ -751,20 +751,8 @@ export default function MayaChat() {
             receiverId: mostSimilar.uid
           });
 
-          try {
-            fetch('/api/notify', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                type: 'accept',
-                recipientEmail: mostSimilar.email,
-                recipientName: mostSimilar.displayName,
-                senderName: profile?.displayName || 'A new soul'
-              })
-            });
-          } catch (err) {
-            console.error("Auto connection notification failed", err);
-          }
+          // Skip email notification as Resend service has been removed
+          console.log("Auto connection established with", mostSimilar.displayName);
         } catch (connCreateErr) {
           console.warn("Could not auto-create connections document in MayaChat (probably permission restricted to other's match requests):", connCreateErr);
         }
@@ -1074,10 +1062,10 @@ export default function MayaChat() {
             <button
               type="button"
               onClick={() => sendCompanionReport(true)}
-              disabled={isSendingReport || messages.length < 2}
-              title="Compile & Email Companion Discovery Report"
+              disabled={isSendingReport || userMessagesCount === 0}
+              title={userMessagesCount === 0 ? "Send a message to Maya first to compile your report" : "Compile & Email Companion Discovery Report"}
               className={`flex items-center gap-1.5 sm:gap-2 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl font-black text-[8px] sm:text-[9.5px] uppercase tracking-wider transition-all duration-300 border cursor-pointer select-none
-                ${messages.length < 2
+                ${userMessagesCount === 0
                   ? 'opacity-30 cursor-not-allowed border-brand-primary/5 text-text-muted bg-transparent'
                   : isSendingReport
                     ? 'border-brand-primary/30 text-brand-primary bg-brand-primary/5 animate-pulse'
@@ -1088,11 +1076,13 @@ export default function MayaChat() {
             >
               <Sparkles size={11} className={isSendingReport ? "animate-spin text-brand-primary" : "text-brand-primary"} />
               <span>
-                {isSendingReport 
-                  ? "Compiling..." 
-                  : reportResult?.status === "success" 
-                    ? "Report Dispatched" 
-                    : "Email My Report"
+                {userMessagesCount === 0
+                  ? "Chat with Maya to Unlock"
+                  : isSendingReport 
+                    ? "Compiling..." 
+                    : reportResult?.status === "success" 
+                      ? "Report Dispatched" 
+                      : "Email My Report"
                 }
               </span>
             </button>
@@ -1472,9 +1462,9 @@ export default function MayaChat() {
                 <button
                   type="button"
                   onClick={() => sendCompanionReport(true)}
-                  disabled={isSendingReport || messages.length < 2 || (isReportLocked && reportResult?.status !== 'success')}
+                  disabled={isSendingReport || userMessagesCount === 0 || (isReportLocked && reportResult?.status !== 'success')}
                   className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all duration-300 border flex items-center justify-center gap-1.5 cursor-pointer select-none
-                    ${messages.length < 2
+                    ${userMessagesCount === 0
                       ? 'opacity-30 cursor-not-allowed border-brand-primary/5 text-text-muted bg-transparent'
                       : isSendingReport
                         ? 'border-brand-primary/30 text-brand-primary bg-brand-primary/5 animate-pulse animate-duration-1000'
@@ -1487,13 +1477,15 @@ export default function MayaChat() {
                 >
                   <Sparkles size={12} className={isSendingReport ? "animate-spin text-brand-primary" : ""} />
                   <span>
-                    {isSendingReport 
-                      ? "Mailing..." 
-                      : reportResult?.status === "success" 
-                        ? "Report Sent" 
-                        : isReportLocked
-                          ? `Locked (${getRemainingDays()}d)`
-                          : "Email My Report"
+                    {userMessagesCount === 0
+                      ? "Chat with Maya to Unlock"
+                      : isSendingReport 
+                        ? "Mailing..." 
+                        : reportResult?.status === "success" 
+                          ? "Report Sent" 
+                          : isReportLocked
+                            ? `Locked (${getRemainingDays()}d)`
+                            : "Email My Report"
                     }
                   </span>
                 </button>
