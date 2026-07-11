@@ -82,8 +82,6 @@ try {
 }
 
   const app = express();
-
-  async function startServer() {
   const PORT = 3000;
 
   // Copy logo to public directory if it exists, so we can use it in transactional emails
@@ -1236,34 +1234,46 @@ Output JSON with updated traits and interests.`;
     }
   });
 
-  // Vite middleware for development (or fallback if dist folder is not compiled yet)
-  const distPath = path.join(process.cwd(), 'dist');
-  const distExists = fs.existsSync(distPath) && fs.existsSync(path.join(distPath, 'index.html'));
-
-  if (process.env.NODE_ENV !== "production" || process.env.DISABLE_HMR === "true" || !distExists) {
-    console.log("Starting in Vite dev development mode...");
+  // Setup helper function to asynchronously initialize Vite dev server if in development
+  async function initViteDev() {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
+  }
+
+  // Vite middleware for development (or fallback if dist folder is not compiled yet)
+  const distPath = path.join(process.cwd(), 'dist');
+  const distExists = fs.existsSync(distPath) && fs.existsSync(path.join(distPath, 'index.html'));
+
+  const isVercel = !!process.env.VERCEL;
+
+  if (process.env.NODE_ENV !== "production" || process.env.DISABLE_HMR === "true" || !distExists) {
+    console.log("Starting in Vite dev development mode...");
+    // Initialize dev middleware asynchronously
+    initViteDev().then(() => {
+      if (!isVercel) {
+        app.listen(PORT, "0.0.0.0", () => {
+          console.log(`Server running on http://localhost:${PORT}`);
+        });
+      }
+    }).catch((err) => {
+      console.error("Vite Dev Server initialization failed:", err);
+    });
   } else {
     console.log("Starting in production static file mode...");
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
-  }
 
-  const isVercel = !!process.env.VERCEL;
-  if (!isVercel) {
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
+    if (!isVercel) {
+      app.listen(PORT, "0.0.0.0", () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+      });
+    }
   }
-}
-
-startServer();
 
 export { app };
 export default app;
