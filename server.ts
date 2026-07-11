@@ -28,6 +28,12 @@ if (fs.existsSync(envExamplePath)) {
   }
 }
 
+// In some environments, the OpenAI secret is injected as lowercase 'openai'. Alias it if needed.
+if (process.env.openai && (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.trim() === "")) {
+  process.env.OPENAI_API_KEY = process.env.openai;
+  console.log("[Environment] Aliased process.env.openai to process.env.OPENAI_API_KEY");
+}
+
 // Ensure favicon and logo assets exist in public
 try {
   const publicDir = path.join(process.cwd(), 'public');
@@ -287,7 +293,7 @@ try {
 
   let openaiClient: OpenAI | null = null;
   function getOpenAI(): OpenAI {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.OPENAI_API_KEY || process.env.openai;
     if (!apiKey) {
       throw new Error("OPENAI_API_KEY is not configured. Please go to the Settings/Secrets menu in AI Studio and add your OPENAI_API_KEY.");
     }
@@ -994,9 +1000,6 @@ EMOTIONAL CONTEXT:
 
 Your goal: Speak beautifully, professionally, and comfortingly, one or two brief, highly relevant sentences at a time, keeping it super conversational, attractive, and friendly. Do not output [PROFILE_READY] unless permitted by rules above.`;
 
-      // Initialize response text variable and check for the presence of the OpenAI API key
-      let responseText = "";
-
       console.log("[Maya Chat] Using OpenAI (gpt-4o-mini)");
       const openai = getOpenAI();
       const openAIMessages = [
@@ -1015,7 +1018,7 @@ Your goal: Speak beautifully, professionally, and comfortingly, one or two brief
         temperature: 0.85,
       });
 
-      responseText = completion.choices[0]?.message?.content || "";
+      const responseText = completion.choices[0]?.message?.content || "";
 
       // Return the generated response to the frontend client
       res.json({ text: responseText });
@@ -1058,9 +1061,6 @@ Format: One or two sentences max. Focus on:
 - Interests mentioned.`;
 
     try {
-      let summaryText = "";
-
-      // Use OpenAI gpt-4o-mini if API key is provided
       console.log("[Maya Summarize] Using OpenAI");
       const openai = getOpenAI();
       const completion = await openai.chat.completions.create({
@@ -1077,7 +1077,7 @@ Format: One or two sentences max. Focus on:
         ],
         temperature: 0.5,
       });
-      summaryText = completion.choices[0]?.message?.content || "";
+      const summaryText = completion.choices[0]?.message?.content || "";
 
       // Return the summarized text
       res.json({ summary: summaryText });
@@ -1101,9 +1101,6 @@ ${messagesArray.map((m: any) => m ? `${m.role || 'user'}: ${m.content || ''}` : 
 Output JSON with updated traits and interests.`;
 
     try {
-      let responseText = "{}";
-
-      // Use OpenAI gpt-4o-mini with native JSON output configuration if API key is provided
       console.log("[Maya Analyze] Using OpenAI");
       const openai = getOpenAI();
       const completion = await openai.chat.completions.create({
@@ -1122,7 +1119,7 @@ Output JSON with updated traits and interests.`;
         temperature: 0.5
       });
 
-      responseText = completion.choices[0]?.message?.content || "{}";
+      const responseText = completion.choices[0]?.message?.content || "{}";
 
       // Return the parsed JSON response
       res.json(JSON.parse(responseText));
