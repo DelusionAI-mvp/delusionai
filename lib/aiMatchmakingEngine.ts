@@ -32,7 +32,7 @@ export interface UserInteractionMetrics {
 }
 
 /**
- * 🛡️ HIGH-INTEGRITY, ZERO-HALLUCINATION AI MATCHMAKING ENGINE
+ * HIGH-INTEGRITY, ZERO-HALLUCINATION AI MATCHMAKING ENGINE
  * Real-world production algorithms for client/server execution on Firestore data.
  */
 export class AIMatchmakingEngine {
@@ -191,7 +191,7 @@ export class AIMatchmakingEngine {
   }
 
   /**
-   * 🛠️ MAIN MATCHMAKING ENGINE: COMPUTES HYBRID ENGINE SCORES
+   * MAIN MATCHMAKING ENGINE: COMPUTES HYBRID ENGINE SCORES
    * Matches candidate profiles against the primary user with no hallucinations.
    */
   public static calculateHybridMatchScore(
@@ -237,7 +237,7 @@ export class AIMatchmakingEngine {
   }
 
   /**
-   * 🤖 DETERMINISTIC PSYCHOLOGICAL EXPLAINABILITY LOGIC
+   * DETERMINISTIC PSYCHOLOGICAL EXPLAINABILITY LOGIC
    * Generates highly custom, non-canned emotional reasoning for peer connection.
    */
   public static generatePsychologicalInsight(user: UserProfile, candidate: UserProfile, score: number): {
@@ -295,7 +295,7 @@ export class AIMatchmakingEngine {
   }
 
   /**
-   * 🛡️ ABUSE, SPAM, & TOXICITY DETECTOR
+   * ABUSE, SPAM, & TOXICITY DETECTOR
    * Checks communication texts to guarantee emotional safety.
    */
   public static performToxicityAudit(messageText: string): { isSafe: boolean; dangerScore: number; reason?: string } {
@@ -330,7 +330,7 @@ export class AIMatchmakingEngine {
   }
 
   /**
-   * 🚀 PIPELINE ENGINE: RANKS REAL RETRIEVED FIRESTORE PROFILES
+   * PIPELINE ENGINE: RANKS REAL RETRIEVED FIRESTORE PROFILES
    * Returns a sorted representation of physical profiles with strict validity (no mock profiles generated).
    */
   public static rankFirestoreCandidates(
