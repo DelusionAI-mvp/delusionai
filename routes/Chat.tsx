@@ -583,7 +583,7 @@ export default function PeerChat() {
                     <div className={`w-2 h-2 rounded-full ${isOnlineFlag ? 'bg-green-500 animate-pulse shadow-[0_0_8px_var(--color-green-500)]' : 'bg-zinc-500'}`}></div>
                     <span className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-text-muted">{isOnlineFlag ? 'Online' : 'Offline'}</span>
                   </div>
-                  {otherUser.isPremium && <span className="px-4 py-2 cred-elevation bg-brand-primary text-white text-[9px] md:text-[10px] font-black uppercase tracking-widest italic tracking-[0.2em]">Premium</span>}
+
                 </div>
               </div>
             </div>
@@ -814,7 +814,7 @@ export default function PeerChat() {
               <div className="space-y-2 font-bold text-text-muted">
                 <div className="flex items-start gap-1.5">
                   <span className="w-4 h-4 rounded-full bg-brand-primary/10 text-brand-primary flex items-center justify-center text-[10px] shrink-0 font-black mt-0.5">1</span>
-                  <span>Click the <strong className="text-brand-primary">Lock Icon 🔒</strong> in your browser's address bar to toggle Microphone to <strong>"Allow"</strong>.</span>
+                  <span>Click the <strong className="text-brand-primary">Lock Icon</strong> in your browser's address bar to toggle Microphone to <strong>"Allow"</strong>.</span>
                 </div>
                 <div className="flex items-start gap-1.5">
                   <span className="w-4 h-4 rounded-full bg-brand-primary/10 text-brand-primary flex items-center justify-center text-[10px] shrink-0 font-black mt-0.5">2</span>
