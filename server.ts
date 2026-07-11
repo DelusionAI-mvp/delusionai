@@ -2,7 +2,6 @@ import dotenv from "dotenv";
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import { Resend } from "resend";
 import OpenAI from "openai";
@@ -556,7 +555,7 @@ try {
   });
 
   // API Health Check Route
-  app.get("/api/health", (req, res) => {
+  app.get(["/api/health", "/health"], (req, res) => {
     res.json({ status: "ok", time: new Date().toISOString() });
   });
 
@@ -606,7 +605,7 @@ try {
   app.get("/v1/emails", getEmailsListHandler);
 
   // API Route for Email Notifications
-  app.post("/api/notify", async (req, res) => {
+  app.post(["/api/notify", "/notify"], async (req, res) => {
     const { 
       type, 
       recipientEmail, 
@@ -698,7 +697,7 @@ try {
   });
 
   // API Route for sending companion report
-  app.post("/api/email/send-report", async (req, res) => {
+  app.post(["/api/email/send-report", "/email/send-report"], async (req, res) => {
     const { recipientEmail, recipientName, preferences, messages, emotionalProfile } = req.body || {};
     console.log(`[Send Report API] Received report request for recipient: "${recipientEmail}"`);
 
@@ -922,7 +921,7 @@ try {
   });
 
   // API Route for Maya Chat (OpenAI Proxy with Gemini Fallback)
-  app.post("/api/maya/chat", async (req, res) => {
+  app.post(["/api/maya/chat", "/maya/chat"], async (req, res) => {
     const { messages, memorySummary, emotionalProfile, profileDetails } = req.body || {};
     
     try {
@@ -1024,29 +1023,13 @@ Your goal: Speak beautifully, professionally, and comfortingly, one or two brief
       res.json({ text: responseText });
     } catch (error: any) {
       console.error("Maya Chat Error:", error);
-      
-      // Implement highly professional, comforting, and language-specific fallback messages
-      let langFallback = "I am listening closely. I am taking a brief moment to gather my thoughts, but please continue to share what is on your mind. Let's take a gentle breath together.";
-      try {
-        const messagesArray = Array.isArray(messages) ? messages : [];
-        const lastUserMsgRecord = [...messagesArray].reverse().find((m: any) => m && m.role === 'user');
-        const lastUserMessage = (lastUserMsgRecord?.content || "").toLowerCase();
-        
-        if (lastUserMessage.includes("tum") || lastUserMessage.includes("aap") || lastUserMessage.includes("kya") || lastUserMessage.includes("hai") || lastUserMessage.includes("nahi")) {
-          langFallback = "Main aapki baat sun rahi hoon aur hamesha aapke sath hoon. Abhi thoda samay lekar baatein samajh rahi hoon, tab tak aap dil kholkar batayein ki aapko kaisa lag raha hai.";
-        } else if (lastUserMessage.includes("ela") || lastUserMessage.includes("nenu") || lastUserMessage.includes("undhi") || lastUserMessage.includes("cheppu")) {
-          langFallback = "Nenu mee maatalu shraddhaga vintunnanu. Ippudu konchem aalochistunnanu, ee lopu meeku anipistunna bhavanalani natho panchukondi.";
-        }
-      } catch (innerErr) {
-        console.error("Error evaluating last message in chat fallback:", innerErr);
-      }
-      
-      res.json({ text: langFallback });
+      const errMessage = error?.message || error?.toString() || "Unknown OpenAI error occurred";
+      res.status(500).json({ error: errMessage });
     }
   });
 
   // API Route for Memory Summary
-  app.post("/api/maya/summarize", async (req, res) => {
+  app.post(["/api/maya/summarize", "/maya/summarize"], async (req, res) => {
     const { messages, oldSummary } = req.body || {};
     const messagesArray = Array.isArray(messages) ? messages : [];
     
@@ -1083,13 +1066,13 @@ Format: One or two sentences max. Focus on:
       res.json({ summary: summaryText });
     } catch (error: any) {
       console.error("Maya Summary Error:", error);
-      // Fallback to old summary or friendly baseline statement in case of any model failure
-      res.json({ summary: oldSummary || "Finding balance and peace step-by-step." });
+      const errMessage = error?.message || error?.toString() || "Unknown error during summarization";
+      res.status(500).json({ error: errMessage });
     }
   });
 
   // API Route for Emotional Analysis (OpenAI Proxy with Gemini Fallback)
-  app.post("/api/maya/analyze", async (req, res) => {
+  app.post(["/api/maya/analyze", "/maya/analyze"], async (req, res) => {
     const { messages, oldProfile } = req.body || {};
     const messagesArray = Array.isArray(messages) ? messages : [];
     
@@ -1125,21 +1108,15 @@ Output JSON with updated traits and interests.`;
       res.json(JSON.parse(responseText));
     } catch (error: any) {
       console.error("Maya Analysis Error:", error);
-      // Return a safe baseline fallback profile on failure to prevent app disruption
-      res.json(oldProfile || {
-        moodBaseline: 5,
-        moodKeywords: ["reflective"],
-        communicationStyle: "thoughtful",
-        needs: "comforting connection",
-        traits: ["sensitive", "resilient"],
-        interests: ["self-care"]
-      });
+      const errMessage = error?.message || error?.toString() || "Unknown error during analysis";
+      res.status(500).json({ error: errMessage });
     }
   });
 
   // Setup helper function to asynchronously initialize Vite dev server if in development
   async function initViteDev() {
-    const vite = await createViteServer({
+    const { createServer } = await import("vite");
+    const vite = await createServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
