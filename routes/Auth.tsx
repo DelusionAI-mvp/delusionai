@@ -56,23 +56,15 @@ export default function AuthPage() {
       console.error("Non-critical: Failed to save error log in Firestore:", fsErr);
     }
 
-    // 2. Dispatch email to Administrator in the background
-    try {
-      await fetch('/api/notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'auth_error_alert',
-          recipientEmail: targetMail,
-          senderName: errCode,
-          recipientName: userAgent,
-          summary: errMsg,
-          emotionalProfile: { domain: hostname }
-        })
-      });
-    } catch (mailErr) {
-      console.error("Non-critical: Failed to dispatch background email log:", mailErr);
-    }
+    // 2. Log Auth errors to console
+    console.error("Non-critical: Background Auth alert:", {
+      type: 'auth_error_alert',
+      recipientEmail: targetMail,
+      senderName: errCode,
+      recipientName: userAgent,
+      summary: errMsg,
+      emotionalProfile: { domain: hostname }
+    });
 
     // 3. Set a beautifully reassuring, human public helper/notice instead of a scary technical error
     if (errCode === 'auth/unauthorized-domain') {
@@ -296,7 +288,7 @@ export default function AuthPage() {
                     rel="noopener noreferrer"
                     className="btn-glassy w-full justify-center !text-[9px] py-1.5 font-black uppercase tracking-wider text-center cursor-pointer flex items-center gap-1.5"
                   >
-                    🚀 Open App in New Tab (Recommended)
+                    Open App in New Tab (Recommended)
                   </a>
                   <p className="text-center text-[8px] text-text-muted font-bold font-sans uppercase tracking-widest leading-normal">
                     Opening in a new tab bypasses iframe popup blockers on Safari, Chrome, &amp; Brave.
