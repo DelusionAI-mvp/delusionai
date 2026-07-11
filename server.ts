@@ -479,8 +479,8 @@ try {
     delayMs = 1500
   ): Promise<any> {
     let attempt = 0;
-    let currentModel = 'gemini-3.1-flash-lite';
-    const fallbackModels = ['gemini-3.1-flash-lite'];
+    let currentModel = params.model || 'gemini-1.5-flash';
+    const fallbackModels = ['gemini-1.5-flash', 'gemini-2.5-flash'];
 
     while (true) {
       try {
@@ -996,69 +996,26 @@ Your goal: Speak beautifully, professionally, and comfortingly, one or two brief
 
       // Initialize response text variable and check for the presence of the OpenAI API key
       let responseText = "";
-      const hasOpenAIKey = !!process.env.OPENAI_API_KEY;
 
-      // If OpenAI API key is present, route the query through GPT-4o-mini
-      if (hasOpenAIKey) {
-        console.log("[Maya Chat] Using OpenAI (gpt-4o-mini)");
-        const openai = getOpenAI();
-        const openAIMessages = [
-          { role: "system" as const, content: systemPrompt },
-          ...messagesArray
-            .filter((m: any) => m && m.content && (m.role === "user" || m.role === "assistant"))
-            .map((m: any) => ({
-              role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
-              content: m.content as string
-            }))
-        ];
+      console.log("[Maya Chat] Using OpenAI (gpt-4o-mini)");
+      const openai = getOpenAI();
+      const openAIMessages = [
+        { role: "system" as const, content: systemPrompt },
+        ...messagesArray
+          .filter((m: any) => m && m.content && (m.role === "user" || m.role === "assistant"))
+          .map((m: any) => ({
+            role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
+            content: m.content as string
+          }))
+      ];
 
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: openAIMessages,
-          temperature: 0.85,
-        });
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: openAIMessages,
+        temperature: 0.85,
+      });
 
-        responseText = completion.choices[0]?.message?.content || "";
-      } else {
-        // If OpenAI key is missing, execute a seamless fallback to Gemini-3.1-flash-lite while retaining identical instructions
-        console.log("[Maya Chat] OpenAI Key is missing. Falling back to Gemini seamlessly while retaining strict OpenAI professional guidelines.");
-        const ai = getAI();
-        
-        // Convert the message history into the Gemini-compliant structure
-        const contentsObj: any[] = [];
-        for (const m of messagesArray) {
-          if (!m || !m.content) continue;
-          const role = m.role === 'assistant' ? 'model' : 'user';
-          
-          if (contentsObj.length === 0 && role !== 'user') {
-            continue;
-          }
-          
-          const lastTurn = contentsObj[contentsObj.length - 1];
-          if (lastTurn && lastTurn.role === role) {
-            lastTurn.parts[0].text += "\n" + m.content;
-          } else {
-            contentsObj.push({
-              role,
-              parts: [{ text: m.content }]
-            });
-          }
-        }
-
-        const contents = contentsObj.length > 0 ? contentsObj : [{ role: 'user', parts: [{ text: "Hello" }] }];
-
-        // Call the retryable Gemini client to generate a comforting response adhering to the strict system guidelines
-        const response = await generateContentWithRetry(ai, {
-          model: 'gemini-3.1-flash-lite',
-          contents,
-          config: {
-            systemInstruction: systemPrompt,
-            temperature: 0.85,
-          }
-        });
-
-        responseText = response.text || "";
-      }
+      responseText = completion.choices[0]?.message?.content || "";
 
       // Return the generated response to the frontend client
       res.json({ text: responseText });
@@ -1101,43 +1058,26 @@ Format: One or two sentences max. Focus on:
 - Interests mentioned.`;
 
     try {
-      // Check if OpenAI key is present for generating user profile summary
-      const hasOpenAIKey = !!process.env.OPENAI_API_KEY;
       let summaryText = "";
 
-      if (hasOpenAIKey) {
-        // Use OpenAI gpt-4o-mini if API key is provided
-        console.log("[Maya Summarize] Using OpenAI");
-        const openai = getOpenAI();
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: "Create a short user memory summary for an AI companion. Be objective and concise. Respond in simple English (approx. A1/A2 level) with short sentences."
-            },
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-          temperature: 0.5,
-        });
-        summaryText = completion.choices[0]?.message?.content || "";
-      } else {
-        // Fall back to Gemini-3.1-flash-lite if OpenAI key is absent
-        console.log("[Maya Summarize] OpenAI Key missing. Seamless fallback to Gemini.");
-        const ai = getAI();
-        const response = await generateContentWithRetry(ai, {
-          model: 'gemini-3.1-flash-lite',
-          contents: prompt,
-          config: {
-            systemInstruction: "Create a short user memory summary for an AI companion. Be objective and concise. Respond in simple English (approx. A1/A2 level) with short sentences.",
-            temperature: 0.5,
+      // Use OpenAI gpt-4o-mini if API key is provided
+      console.log("[Maya Summarize] Using OpenAI");
+      const openai = getOpenAI();
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "Create a short user memory summary for an AI companion. Be objective and concise. Respond in simple English (approx. A1/A2 level) with short sentences."
+          },
+          {
+            role: "user",
+            content: prompt
           }
-        });
-        summaryText = response.text || "";
-      }
+        ],
+        temperature: 0.5,
+      });
+      summaryText = completion.choices[0]?.message?.content || "";
 
       // Return the summarized text
       res.json({ summary: summaryText });
@@ -1161,62 +1101,28 @@ ${messagesArray.map((m: any) => m ? `${m.role || 'user'}: ${m.content || ''}` : 
 Output JSON with updated traits and interests.`;
 
     try {
-      // Check if OpenAI key is present for processing structured emotional profile updates
-      const hasOpenAIKey = !!process.env.OPENAI_API_KEY;
       let responseText = "{}";
 
-      if (hasOpenAIKey) {
-        // Use OpenAI gpt-4o-mini with native JSON output configuration if API key is provided
-        console.log("[Maya Analyze] Using OpenAI");
-        const openai = getOpenAI();
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: "Analyze the user's conversation history with Maya. Build and continuously refine a structured emotional and personality profile. Extract ageGroup (e.g., '18-22', '23-29', '30-39', '40-49', '50+'), emotionalTags (such as: 'lonely', 'anxious', 'overthinker', 'burnout', 'relationship stress', 'career stress'), personalityTraits (such as: 'introvert', 'extrovert'), interests (such as: 'gaming', 'music'), supportStyle, communicationStyle, and activityLevel. Output a JSON object containing keys: moodBaseline (number), moodKeywords (array of strings), communicationStyle (string), needs (string), traits (array of strings), interests (array of strings), ageGroup (string), emotionalTags (array of strings), personalityTraits (array of strings), supportStyle (string), and activityLevel (string). Merge new findings with the previous profile and make sure to populate all parameters. Output JSON only."
-            },
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.5
-        });
-
-        responseText = completion.choices[0]?.message?.content || "{}";
-      } else {
-        // Execute a seamless fallback to Gemini-3.1-flash-lite utilizing structured JSON schema constraints
-        console.log("[Maya Analyze] OpenAI Key missing. Seamless fallback to Gemini.");
-        const ai = getAI();
-        const response = await generateContentWithRetry(ai, {
-          model: 'gemini-3.1-flash-lite',
-          contents: prompt,
-          config: {
-            systemInstruction: "Analyze the user's conversation history with Maya. Build and continuously refine a structured emotional and personality profile. Extract ageGroup (e.g., '18-22', '23-29', '30-39', '40-49', '50+'), emotionalTags (such as: 'lonely', 'anxious', 'overthinker', 'burnout', 'relationship stress', 'career stress'), personalityTraits (such as: 'introvert', 'extrovert'), interests (such as: 'gaming', 'music'), supportStyle, communicationStyle, and activityLevel. Output JSON only. Merge new findings with the previous profile and make sure to populate all parameters.",
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                moodBaseline: { type: Type.NUMBER },
-                moodKeywords: { type: Type.ARRAY, items: { type: Type.STRING } },
-                communicationStyle: { type: Type.STRING },
-                needs: { type: Type.STRING },
-                traits: { type: Type.ARRAY, items: { type: Type.STRING } },
-                interests: { type: Type.ARRAY, items: { type: Type.STRING } },
-                ageGroup: { type: Type.STRING },
-                emotionalTags: { type: Type.ARRAY, items: { type: Type.STRING } },
-                personalityTraits: { type: Type.ARRAY, items: { type: Type.STRING } },
-                supportStyle: { type: Type.STRING },
-                activityLevel: { type: Type.STRING }
-              }
-            }
+      // Use OpenAI gpt-4o-mini with native JSON output configuration if API key is provided
+      console.log("[Maya Analyze] Using OpenAI");
+      const openai = getOpenAI();
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "Analyze the user's conversation history with Maya. Build and continuously refine a structured emotional and personality profile. Extract ageGroup (e.g., '18-22', '23-29', '30-39', '40-49', '50+'), emotionalTags (such as: 'lonely', 'anxious', 'overthinker', 'burnout', 'relationship stress', 'career stress'), personalityTraits (such as: 'introvert', 'extrovert'), interests (such as: 'gaming', 'music'), supportStyle, communicationStyle, and activityLevel. Output a JSON object containing keys: moodBaseline (number), moodKeywords (array of strings), communicationStyle (string), needs (string), traits (array of strings), interests (array of strings), ageGroup (string), emotionalTags (array of strings), personalityTraits (array of strings), supportStyle (string), and activityLevel (string). Merge new findings with the previous profile and make sure to populate all parameters. Output JSON only."
+          },
+          {
+            role: "user",
+            content: prompt
           }
-        });
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.5
+      });
 
-        responseText = response.text || "{}";
-      }
+      responseText = completion.choices[0]?.message?.content || "{}";
 
       // Return the parsed JSON response
       res.json(JSON.parse(responseText));
@@ -1249,15 +1155,15 @@ Output JSON with updated traits and interests.`;
 
   const isVercel = !!process.env.VERCEL;
 
-  if (process.env.NODE_ENV !== "production" || process.env.DISABLE_HMR === "true" || !distExists) {
+  if (isVercel) {
+    console.log("Running on Vercel serverless function. Static files served by CDN. Express handling API routes only.");
+  } else if (process.env.NODE_ENV !== "production" || process.env.DISABLE_HMR === "true" || !distExists) {
     console.log("Starting in Vite dev development mode...");
     // Initialize dev middleware asynchronously
     initViteDev().then(() => {
-      if (!isVercel) {
-        app.listen(PORT, "0.0.0.0", () => {
-          console.log(`Server running on http://localhost:${PORT}`);
-        });
-      }
+      app.listen(PORT, "0.0.0.0", () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+      });
     }).catch((err) => {
       console.error("Vite Dev Server initialization failed:", err);
     });
@@ -1268,11 +1174,9 @@ Output JSON with updated traits and interests.`;
       res.sendFile(path.join(distPath, 'index.html'));
     });
 
-    if (!isVercel) {
-      app.listen(PORT, "0.0.0.0", () => {
-        console.log(`Server running on http://localhost:${PORT}`);
-      });
-    }
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
   }
 
 export { app };
