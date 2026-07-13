@@ -7,7 +7,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const { messages, memorySummary, emotionalProfile, profileDetails } = req.body || {};
-  
+
   try {
     const ai = getAI();
     const messagesArray = Array.isArray(messages) ? messages : [];
@@ -81,51 +81,49 @@ EMOTIONAL CONTEXT:
 
 Your goal: Speak beautifully and comforting, one or two brief, highly relevant sentences at a time, keeping it super conversational, attractive, and friendly. Do not output [PROFILE_READY] unless permitted by rules above.`;
 
-    // Ensure strictly alternating messages starting with 'user' for Gemini API requirements
-    const contentsObj: any[] = [];
+    // Build OpenAI-style messages array: system prompt first, then user/assistant turns
+    const chatMessages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
+      { role: 'system', content: systemPrompt }
+    ];
+
     for (const m of messagesArray) {
       if (!m || !m.content) continue;
-      const role = m.role === 'assistant' ? 'model' : 'user';
-      
-      // Skip initial assistant greeting so the conversation content starts with a user turn
-      if (contentsObj.length === 0 && role !== 'user') {
-        continue;
-      }
-      
-      const lastTurn = contentsObj[contentsObj.length - 1];
+      const role = m.role === 'assistant' ? 'assistant' : 'user';
+
+      const lastTurn = chatMessages[chatMessages.length - 1];
       if (lastTurn && lastTurn.role === role) {
-        lastTurn.parts[0].text += "\n" + m.content;
+        lastTurn.content += "\n" + m.content;
       } else {
-        contentsObj.push({
-          role,
-          parts: [{ text: m.content }]
-        });
+        chatMessages.push({ role, content: m.content });
       }
     }
 
-    // Fallback if empty to prevent empty contents error
-    const contents = contentsObj.length > 0 ? contentsObj : [{ role: 'user', parts: [{ text: "Hello" }] }];
+    // Fallback if no user content to prevent empty messages error
+    const hasUserTurn = chatMessages.some(m => m.role === 'user');
+    if (!hasUserTurn) {
+      chatMessages.push({ role: 'user', content: 'Hello' });
+    }
 
     const response = await generateContentWithRetry(ai, {
-      model: 'gemini-3.1-flash-lite',
-      contents,
+      model: 'gpt-4o-mini',
+      contents: chatMessages,
       config: {
-        systemInstruction: systemPrompt,
         temperature: 0.85,
       }
     });
 
-    return res.json({ text: response.text || "" });
+    const text = response?.choices?.[0]?.message?.content || "";
+    return res.json({ text });
   } catch (error: any) {
     console.error("Maya Chat Error:", error);
-    
+
     // Implement sweet language-specific persona-aligned fallbacks instead of crashing (without flower emojis)
     let langFallback = "I'm feeling a little overwhelmed by thoughts right now, sweetie... Let's take a deep breath together and try again in a few seconds!";
     try {
       const messagesArray = Array.isArray(messages) ? messages : [];
       const lastUserMsgRecord = [...messagesArray].reverse().find((m: any) => m && m.role === 'user');
       const lastUserMessage = (lastUserMsgRecord?.content || "").toLowerCase();
-      
+
       if (lastUserMessage.includes("tum") || lastUserMessage.includes("aap") || lastUserMessage.includes("kya") || lastUserMessage.includes("hai") || lastUserMessage.includes("nahi")) {
         langFallback = "Abhi dimaag thoda thak gaya hai, sweetie... Ek gehri saans lete hain aur ek minute baad firse baat karte hain!";
       } else if (lastUserMessage.includes("ela") || lastUserMessage.includes("nenu") || lastUserMessage.includes("undhi") || lastUserMessage.includes("cheppu")) {
@@ -134,7 +132,7 @@ Your goal: Speak beautifully and comforting, one or two brief, highly relevant s
     } catch (innerErr) {
       console.error("Error evaluating last message in chat fallback:", innerErr);
     }
-    
+
     return res.json({ text: langFallback });
   }
 }
