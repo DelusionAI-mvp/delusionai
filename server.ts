@@ -32,76 +32,80 @@ if (process.env.openai && (!process.env.OPENAI_API_KEY || process.env.OPENAI_API
   console.log("[Environment] Aliased process.env.openai to process.env.OPENAI_API_KEY");
 }
 
-// Ensure favicon and logo assets exist in public
-try {
-  const publicDir = path.join(process.cwd(), 'public');
-  if (!fs.existsSync(publicDir)) {
-    fs.mkdirSync(publicDir, { recursive: true });
-  }
-  const logoPath = path.join(publicDir, 'delusion-logo.png');
-  if (fs.existsSync(logoPath)) {
-    const targets = [
-      'favicon.ico',
-      'favicon-32x32.png',
-      'favicon-16x16.png',
-      'apple-touch-icon.png',
-      'android-chrome-192x192.png',
-      'android-chrome-512x512.png'
-    ];
-    for (const target of targets) {
-      const targetPath = path.join(publicDir, target);
-      // We always ensure they are up to date with the latest logo
-      fs.copyFileSync(logoPath, targetPath);
+// Ensure favicon and logo assets exist in public (skip on Vercel read-only runtime)
+if (!process.env.VERCEL) {
+  try {
+    const publicDir = path.join(process.cwd(), 'public');
+    if (!fs.existsSync(publicDir)) {
+      fs.mkdirSync(publicDir, { recursive: true });
     }
-    console.log("[Favicon] Automatically synchronized all favicon and touch icon files with delusion-logo.png.");
-  } else {
-    console.warn("[Favicon] delusion-logo.png not found in public folder yet.");
-  }
-
-  // Create site.webmanifest if it doesn't exist or update it
-  const manifestPath = path.join(publicDir, 'site.webmanifest');
-  const manifestContent = {
-    "name": "DelusionAI",
-    "short_name": "DelusionAI",
-    "icons": [
-      {
-        "src": "/android-chrome-192x192.png",
-        "sizes": "192x192",
-        "type": "image/png"
-      },
-      {
-        "src": "/android-chrome-512x512.png",
-        "sizes": "512x512",
-        "type": "image/png"
+    const logoPath = path.join(publicDir, 'delusion-logo.png');
+    if (fs.existsSync(logoPath)) {
+      const targets = [
+        'favicon.ico',
+        'favicon-32x32.png',
+        'favicon-16x16.png',
+        'apple-touch-icon.png',
+        'android-chrome-192x192.png',
+        'android-chrome-512x512.png'
+      ];
+      for (const target of targets) {
+        const targetPath = path.join(publicDir, target);
+        // We always ensure they are up to date with the latest logo
+        fs.copyFileSync(logoPath, targetPath);
       }
-    ],
-    "theme_color": "#ffffff",
-    "background_color": "#ffffff",
-    "display": "standalone"
-  };
-  fs.writeFileSync(manifestPath, JSON.stringify(manifestContent, null, 2), 'utf8');
-  console.log("[Favicon] site.webmanifest generated successfully.");
-} catch (err: any) {
-  console.warn("[Favicon] Failed to initialize logo/favicon assets:", err.message);
+      console.log("[Favicon] Automatically synchronized all favicon and touch icon files with delusion-logo.png.");
+    } else {
+      console.warn("[Favicon] delusion-logo.png not found in public folder yet.");
+    }
+
+    // Create site.webmanifest if it doesn't exist or update it
+    const manifestPath = path.join(publicDir, 'site.webmanifest');
+    const manifestContent = {
+      "name": "DelusionAI",
+      "short_name": "DelusionAI",
+      "icons": [
+        {
+          "src": "/android-chrome-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        },
+        {
+          "src": "/android-chrome-512x512.png",
+          "sizes": "512x512",
+          "type": "image/png"
+        }
+      ],
+      "theme_color": "#ffffff",
+      "background_color": "#ffffff",
+      "display": "standalone"
+    };
+    fs.writeFileSync(manifestPath, JSON.stringify(manifestContent, null, 2), 'utf8');
+    console.log("[Favicon] site.webmanifest generated successfully.");
+  } catch (err: any) {
+    console.warn("[Favicon] Failed to initialize logo/favicon assets:", err.message);
+  }
 }
 
   const app = express();
   const PORT = 3000;
 
-  // Copy logo to public directory if it exists, so we can use it in transactional emails
-  try {
-    const srcPath = path.join(process.cwd(), 'src', 'assets', 'images', 'delusion-logo.png');
-    const publicDir = path.join(process.cwd(), 'public');
-    const destPath = path.join(publicDir, 'delusion-logo.png');
-    if (fs.existsSync(srcPath)) {
-      if (!fs.existsSync(publicDir)) {
-        fs.mkdirSync(publicDir, { recursive: true });
+  // Copy logo to public directory if it exists, so we can use it in transactional emails (skip on Vercel)
+  if (!process.env.VERCEL) {
+    try {
+      const srcPath = path.join(process.cwd(), 'src', 'assets', 'images', 'delusion-logo.png');
+      const publicDir = path.join(process.cwd(), 'public');
+      const destPath = path.join(publicDir, 'delusion-logo.png');
+      if (fs.existsSync(srcPath)) {
+        if (!fs.existsSync(publicDir)) {
+          fs.mkdirSync(publicDir, { recursive: true });
+        }
+        fs.copyFileSync(srcPath, destPath);
+        console.log("Successfully copied delusion-logo.png to public folder for transactional emails.");
       }
-      fs.copyFileSync(srcPath, destPath);
-      console.log("Successfully copied delusion-logo.png to public folder for transactional emails.");
+    } catch (err) {
+      console.error("Warning: Failed to copy delusion-logo.png to public:", err);
     }
-  } catch (err) {
-    console.error("Warning: Failed to copy delusion-logo.png to public:", err);
   }
   
   function sanitizeApiKey(key: string | undefined): string | undefined {
