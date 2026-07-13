@@ -292,9 +292,10 @@ try {
 
   let openaiClient: OpenAI | null = null;
   function getOpenAI(): OpenAI {
-    const apiKey = process.env.OPENAI_API_KEY || process.env.openai;
+    const rawKey = process.env.OPENAI_API_KEY || process.env.openai;
+    const apiKey = sanitizeApiKey(rawKey);
     if (!apiKey) {
-      throw new Error("OPENAI_API_KEY is not configured. Please go to the Settings/Secrets menu in AI Studio and add your OPENAI_API_KEY.");
+      throw new Error("OPENAI_API_KEY is not configured. Please define OPENAI_API_KEY as an environment variable in your Vercel project settings, then trigger a new deployment.");
     }
     if (!openaiClient) {
       openaiClient = new OpenAI({ apiKey });
