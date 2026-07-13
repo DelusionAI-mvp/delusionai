@@ -13,7 +13,9 @@ import {
   Heart,
   ChevronRight,
   X,
-  Check
+  Check,
+  Lock,
+  MessageSquarePlus
 } from 'lucide-react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Logo } from '../components/Logo';
@@ -43,13 +45,10 @@ export default function MayaChat() {
   const [showConnectionDetailModal, setShowConnectionDetailModal] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   
-  const [showPremiumModalState, setShowPremiumModalState] = useState(false);
-  const setShowPremiumModal = (val: boolean) => {
-    if (val && profile?.isPremium) return;
-    setShowPremiumModalState(val);
-  };
-  const showPremiumModal = showPremiumModalState;
+  // State for toggling the Oasis Premium purchase and feature overview modal
+  const [showPremiumModal, setShowPremiumModal] = useState(false);
   
+  // State to manage the display of the 4-hour countdown block for free-tier users
   const [showCooldownModal, setShowCooldownModal] = useState(false);
 
   const [transitionVisible, setTransitionVisible] = useState(false);
@@ -66,10 +65,129 @@ export default function MayaChat() {
   const oneWeekInMs = 7 * 24 * 60 * 60 * 1000;
   const isReportLocked = profile?.lastReportSentAt ? (Date.now() - lastSentTime < oneWeekInMs) : false;
 
+  const [reportTimerTick, setReportTimerTick] = useState(0);
+
+  useEffect(() => {
+    if (isReportLocked) {
+      const interval = setInterval(() => {
+        setReportTimerTick(prev => prev + 1);
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [isReportLocked]);
+
+  const getRemainingReportTimeStr = () => {
+    if (!profile?.lastReportSentAt) return "";
+    const nextAvailableTime = lastSentTime + oneWeekInMs;
+    const diffMs = nextAvailableTime - Date.now();
+    if (diffMs <= 0) return "";
+
+    const totalMin = Math.floor(diffMs / (1000 * 60));
+    const totalHr = Math.floor(totalMin / 60);
+    const days = Math.floor(totalHr / 24);
+    const hours = totalHr % 24;
+    const minutes = totalMin % 60;
+
+    return `${String(days).padStart(2, '0')}d:${String(hours).padStart(2, '0')}h:${String(minutes).padStart(2, '0')}m`;
+  };
+
+  const getReportUnlockDateStr = () => {
+    if (!profile?.lastReportSentAt) return "";
+    const unlockDate = new Date(lastSentTime + oneWeekInMs);
+    return unlockDate.toLocaleString('en-US', { 
+      month: 'long', 
+      day: 'numeric', 
+      year: 'numeric', 
+      hour: 'numeric', 
+      minute: '2-digit', 
+      hour12: true 
+    });
+  };
+
   const getRemainingDays = () => {
     if (!profile?.lastReportSentAt) return 0;
     const diff = (lastSentTime + oneWeekInMs) - Date.now();
     return Math.max(0, Math.ceil(diff / (24 * 60 * 60 * 1000)));
+  };
+
+  // Optional Feedback Form States
+  const [feedbackRating, setFeedbackRating] = useState<number>(0);
+  const [feedbackUnderstood, setFeedbackUnderstood] = useState<string>('');
+  const [feedbackHelpful, setFeedbackHelpful] = useState<string[]>([]);
+  const [feedbackImprovements, setFeedbackImprovements] = useState<string>('');
+  const [feedbackConfusing, setFeedbackConfusing] = useState<string>('');
+  const [feedbackRecommend, setFeedbackRecommend] = useState<string>('');
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState<boolean>(false);
+  const [showFeedbackThankYou, setShowFeedbackThankYou] = useState<boolean>(false);
+  
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState<boolean>(false);
+  const [forceShowFeedbackModal, setForceShowFeedbackModal] = useState<boolean>(false);
+  const [feedbackDismissed, setFeedbackDismissed] = useState<boolean>(() => {
+    if (auth.currentUser) {
+      return localStorage.getItem(`feedback_skipped_${auth.currentUser.uid}`) === 'true';
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (!user) return;
+    const checkFeedback = async () => {
+      try {
+        const feedbackRef = doc(db, 'users', user.uid, 'feedback', 'main');
+        const snap = await getDoc(feedbackRef);
+        if (snap.exists()) {
+          setFeedbackSubmitted(true);
+        }
+      } catch (err) {
+        console.error("Error loading feedback status from firestore:", err);
+      }
+    };
+    checkFeedback();
+  }, [user]);
+
+  const handleFeedbackSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setIsSubmittingFeedback(true);
+    try {
+      const feedbackRef = doc(db, 'users', user.uid, 'feedback', 'main');
+      const centralFeedbackRef = doc(db, 'feedbacks', user.uid);
+
+      const payload = {
+        rating: feedbackRating || null,
+        understood: feedbackUnderstood || null,
+        helpfulAspects: feedbackHelpful,
+        websiteImprovement: feedbackImprovements || null,
+        confusingAreas: feedbackConfusing || null,
+        recommend: feedbackRecommend || null,
+        userId: user.uid,
+        userEmail: user.email || (profile ? profile.email : null) || null,
+        userName: (profile ? profile.displayName : null) || user.displayName || "Companion",
+        submittedAt: new Date().toISOString()
+      };
+
+      await setDoc(feedbackRef, payload);
+      await setDoc(centralFeedbackRef, payload);
+      
+      setFeedbackSubmitted(true);
+      setShowFeedbackThankYou(true);
+      setForceShowFeedbackModal(false);
+      setTimeout(() => {
+        setShowFeedbackThankYou(false);
+      }, 5000);
+    } catch (err: any) {
+      console.error("Error submitting feedback:", err);
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  };
+
+  const handleFeedbackSkip = () => {
+    if (user) {
+      localStorage.setItem(`feedback_skipped_${user.uid}`, 'true');
+    }
+    setFeedbackDismissed(true);
+    setForceShowFeedbackModal(false);
   };
 
   const sendCompanionReport = async (forceManual = false) => {
@@ -78,7 +196,7 @@ export default function MayaChat() {
     if (isReportLocked) {
       setReportResult({
         status: "error",
-        message: `Your companion report is available once a week. Your next report is available in ${getRemainingDays()} days.`
+        message: `Your wellness report is cooling down. You can email your next report in ${getRemainingReportTimeStr()} (Available on ${getReportUnlockDateStr()}).`
       });
       return;
     }
@@ -122,7 +240,7 @@ export default function MayaChat() {
       if (resData.status === "success") {
         setReportResult({
           status: "success",
-          message: `Deep reflection report has been successfully dispatched to ${user.email || profile.email}! (Via ${resData.provider})`
+          message: `Deep reflection report has been successfully dispatched to ${user.email || profile.email}!`
         });
       } else if (resData.status === "mocked") {
         setReportResult({
@@ -131,6 +249,37 @@ export default function MayaChat() {
         });
       } else {
         throw new Error(resData.error || "Unknown server response");
+      }
+
+      // Save the generated report details in Firestore subcollection for future purposes without doing any mistakes
+      try {
+        const reportId = `report_${Date.now()}`;
+        const reportRef = doc(db, "users", user.uid, "reports", reportId);
+        
+        const moodBaseline = profile.emotionalProfile?.moodBaseline || "Reflective";
+        const numVal = parseInt(moodBaseline.toString().replace(/[^0-9]/g, ''));
+        const moodScore = !isNaN(numVal) && numVal >= 0 && numVal <= 100 ? numVal : 50;
+
+        const reportData = {
+          reportId: reportId,
+          userId: user.uid,
+          reportRefCode: resData.reportRefCode || `OASIS-REPORT-${Math.floor(100000 + Math.random() * 900000)}`,
+          date: new Date().toISOString(),
+          userName: profile.displayName || user.displayName || "Companion",
+          moodScore: moodScore,
+          needs: profile.emotionalProfile?.needs || "Comforting connection",
+          currentSituation: profile.currentSituation || [],
+          whyJoined: profile.whyJoined || [],
+          traits: Array.isArray(profile.emotionalProfile?.traits) ? profile.emotionalProfile?.traits.join(', ') : (profile.emotionalProfile?.traits || 'Sensitive, Resilient'),
+          coping: Array.isArray(profile.interests) ? profile.interests.join(', ') : (profile.interests || 'Mindfulness, Self-care'),
+          createdAt: new Date().toISOString()
+        };
+
+        await setDoc(reportRef, reportData);
+        console.log("[Companion Report] Successfully saved report to Firestore under user reports collection.");
+      } catch (err: any) {
+        console.error("[Companion Report] Error saving report to Firestore subcollection:", err);
+        handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/reports`);
       }
 
       // Save in Firestore that the report was dispatched and record the timestamp to enforce the weekly limit
@@ -178,13 +327,13 @@ export default function MayaChat() {
   const [hasSentMessageThisSession, setHasSentMessageThisSession] = useState(false);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(true);
 
-  // Randomized exchanges (5 to 7 exchanges) before recommendation.
+  // Randomized exchanges (6 to 8 exchanges) before recommendation.
   const [maxExchanges] = useState<number>(() => {
-    return Math.floor(Math.random() * 3) + 5; // Generates 5, 6, or 7
+    return Math.floor(Math.random() * 3) + 6; // Generates 6, 7, or 8
   });
 
-  // Exactly 8 exchanges triggers the pause / cooldown trigger
-  const exchangesNeeded = 8;
+  // Dynamic threshold for the pause / cooldown trigger based on maxExchanges
+  const exchangesNeeded = maxExchanges;
 
   const [refreshCount, setRefreshCount] = useState(0);
   const [timeRemaining, setTimeRemaining] = useState<number>(() => {
@@ -196,31 +345,34 @@ export default function MayaChat() {
     return 0;
   });
 
+  // Check if user is within their first 24 hours (new user policy permits unlimited chats)
   const isNewUser = !profile?.createdAt || 
                     (new Date().getTime() - new Date(profile.createdAt).getTime()) < (24 * 60 * 60 * 1000);
 
   const now = new Date();
+  
+  // Count the user messages exchanged during this active counselor session
   const userMessagesCount = messages.filter(m => m.role === 'user').length;
   
-  // Cooldown is active if user messages are exactly 8 or more, or if we have an active timer (only for non-premium users)
-  const isCooldownActive = !profile?.isPremium && (userMessagesCount >= 8 || timeRemaining > 0 || !!(profile?.cooldownEnd && new Date(profile.cooldownEnd) > now));
+  // Cooldown is active only for free-tier users if they exceed the max message limit or have a remaining timer
+  const isCooldownActive = !profile?.isPremium && (userMessagesCount >= maxExchanges || timeRemaining > 0);
   
-  // Recommendations shown when userMessageCount exceeds the randomized threshold OR if cooldown is active
+  // The companion matching recommendation module shows up if they have finished the dialog or reached limits
   const isSessionCompleted = (hasSentMessageThisSession && userMessagesCount >= maxExchanges) || isCooldownActive;
 
   const [cooldownRemainingStr, setCooldownRemainingStr] = useState<string>('');
 
   useEffect(() => {
-    if (!profile?.isPremium && userMessagesCount >= 8 && timeRemaining === 0) {
+    if (!profile?.isPremium && userMessagesCount >= maxExchanges && timeRemaining === 0) {
       const saved = localStorage.getItem('maya_cooldown_end');
       if (!saved) {
-        const endTime = new Date(Date.now() + 90 * 60 * 1000).toISOString(); // 90 minutes
+        const endTime = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(); // 4 hours
         localStorage.setItem('maya_cooldown_end', endTime);
-        setTimeRemaining(5400); // 5400 seconds (90 minutes)
+        setTimeRemaining(14400); // 14400 seconds (4 hours)
         setShowCooldownModal(true);
       }
     }
-  }, [userMessagesCount, timeRemaining, profile?.isPremium]);
+  }, [userMessagesCount, timeRemaining, profile?.isPremium, maxExchanges]);
 
   useEffect(() => {
     if (timeRemaining > 0) {
@@ -236,15 +388,6 @@ export default function MayaChat() {
       return () => clearInterval(timer);
     }
   }, [timeRemaining]);
-
-  // Automated Backdrop Trigger for report generation once Maya finishes chatting
-  useEffect(() => {
-    if (isSessionCompleted && messages.length >= 3) {
-      if (!isReportLocked) {
-        sendCompanionReport(false);
-      }
-    }
-  }, [isSessionCompleted, messages.length, isReportLocked]);
 
   const handleRefreshRecommendations = () => {
     if (!profile?.isPremium && refreshCount >= 3) {
@@ -285,7 +428,7 @@ export default function MayaChat() {
       const totalMin = Math.ceil(diffMs / (1000 * 60));
       const hours = Math.floor(totalMin / 60);
       const minutes = totalMin % 60;
-      setCooldownRemainingStr(`${String(hours).padStart(2, '0')}-${String(minutes).padStart(2, '0')}`);
+      setCooldownRemainingStr(`${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`);
     };
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
@@ -310,6 +453,25 @@ export default function MayaChat() {
     }
   }, [isCooldownActive]);
 
+  const getUnlockTimeStr = () => {
+    const saved = localStorage.getItem('maya_cooldown_end') || profile?.cooldownEnd;
+    if (!saved) return "";
+    const d = new Date(saved);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const getFormattedUnlockTime = () => {
+    const saved = localStorage.getItem('maya_cooldown_end') || profile?.cooldownEnd;
+    if (!saved) return "12:00 PM";
+    const d = new Date(saved);
+    let hours = d.getHours();
+    const ampm = hours >= 12 ? 'pm' : 'am';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes} ${ampm}`;
+  };
+
   const getComebackMessage = (dateStr?: string) => {
     if (!dateStr) return "";
     const d = new Date(dateStr);
@@ -318,7 +480,7 @@ export default function MayaChat() {
     hours = hours % 12;
     hours = hours ? hours : 12;
     const minutes = String(d.getMinutes()).padStart(2, '0');
-    return `You have reached your free limit. Come back after ${hours}:${minutes} ${ampm}.`;
+    return `You have reached your free limit. You can chat with Maya again at ${hours}:${minutes} ${ampm}.`;
   };
 
   const formatComebackTime = (dateStr?: string) => {
@@ -737,7 +899,7 @@ export default function MayaChat() {
       const docs = potentialUsers.slice(0, countToTake);
       
       // AUTO CONNECT LOGIC: Connect with the most similar candidate user if within connection limits
-      const isOverLimit = !profile?.isPremium && activeConnsCount >= 2;
+  const isOverLimit = false;
       if (potentialUsers.length > 0 && !isOverLimit) {
         const mostSimilar = potentialUsers[0];
         
@@ -786,19 +948,6 @@ export default function MayaChat() {
     e?.preventDefault();
     if (!inputText.trim() || isTyping || !user || !profile) return;
 
-    if (isCooldownActive) {
-      setInputText('');
-      setShowPremiumModal(true);
-      return;
-    }
-
-    if (!profile.isPremium && (profile.messagesUsed || 0) >= 8) {
-      setInputText('');
-      alert("You have reached your limit of 8 exchanges. Please take a temporary pause or upgrade for unlimited!");
-      setShowPremiumModal(true);
-      return;
-    }
-
     const userMsg: MayaMessage = { role: 'user', content: inputText.trim() };
     const newMessages = [...messages, userMsg];
     
@@ -808,10 +957,10 @@ export default function MayaChat() {
     setHasSentMessageThisSession(true);
 
     const userMsgCount = newMessages.filter(m => m.role === 'user').length;
-    // Triggers recommendation on meeting randomized threshold between 5 and 7
+    // Triggers recommendation on meeting randomized threshold between 6 and 8
     // Still recommend for both basic and premium users in the same way (at the threshold)
     const shouldRecommend = (userMsgCount === maxExchanges);
-    const isSessionEnded = !profile?.isPremium && userMsgCount > 8;
+    const isSessionEnded = false;
 
     try {
       const convRef = doc(db, 'conversations_maya', user.uid);
@@ -855,7 +1004,7 @@ export default function MayaChat() {
               updatedAt: new Date().toISOString()
             };
 
-            const cooldownDuration = 90 * 60 * 1000; // 90 minutes
+            const cooldownDuration = 4 * 60 * 60 * 1000; // 4 hours
             userUpdate.cooldownEnd = new Date(Date.now() + cooldownDuration).toISOString();
             // Reset daily messages count
             userUpdate.messagesUsed = 0; 
@@ -903,13 +1052,27 @@ export default function MayaChat() {
       let finalMessages = [...newMessages, assistantMsg];
       
       try {
+        // Persist the conversation history update to Firestore
         await updateDoc(convRef, {
           messages: finalMessages,
           lastUpdated: new Date().toISOString()
         });
+      } catch (e) {
+        handleFirestoreError(e, OperationType.UPDATE, `conversations_maya/${user.uid}`);
+      }
+
+      // Analyze and update profile every time after a chat exchange with Maya
+      setIsTyping(false);
+      setIsAnalyzing(true);
+      try {
+        // Run both analyzeProfile and summarizeMemory in parallel every single time to ensure total accuracy on every turn
+        const [newEmotionalProfile, newSummary] = await Promise.all([
+          analyzeProfile(finalMessages, profile.emotionalProfile),
+          summarizeMemory(finalMessages, profile.userMemorySummary)
+        ]);
 
         const newMessagesUsed = (profile.messagesUsed || 0) + 1;
-        const updateData: any = {
+        const userUpdate: any = {
           'activityMetrics.totalMayaTime': increment(1),
           'activityMetrics.lastActive': new Date().toISOString(),
           lastMayaInteractionAt: new Date().toISOString(),
@@ -917,36 +1080,26 @@ export default function MayaChat() {
           updatedAt: new Date().toISOString()
         };
 
-        if (newMessagesUsed % 10 === 0) {
-          const newSummary = await summarizeMemory(finalMessages, profile.userMemorySummary);
-          updateData.userMemorySummary = newSummary;
+        // If a new emotional profile is successfully extracted, update state
+        if (newEmotionalProfile) {
+          userUpdate.emotionalProfile = newEmotionalProfile as EmotionalProfile;
+        }
+        // If a new memory summary is successfully generated, update state
+        if (newSummary) {
+          userUpdate.userMemorySummary = newSummary;
         }
 
-        await updateDoc(userRef, updateData);
-      } catch (e) {
-        handleFirestoreError(e, OperationType.UPDATE, `conversations_maya/${user.uid}`);
-      }
+        // If session threshold is reached, mark profile for companion recommendation refresh
+        if (shouldRecommend) {
+          userUpdate.recommendationRefreshNeeded = true;
+        }
 
-      // Analyze and update profile every time after chat with Maya
-      setIsTyping(false);
-      setIsAnalyzing(true);
-      try {
-        const newEmotionalProfile = await analyzeProfile(finalMessages, profile.emotionalProfile);
-        if (newEmotionalProfile) {
-          const userUpdate: any = {
-            emotionalProfile: newEmotionalProfile as EmotionalProfile,
-            updatedAt: new Date().toISOString()
-          };
+        // Update the user document in Firestore with the newly computed values
+        await updateDoc(userRef, userUpdate);
 
-          if (shouldRecommend) {
-            userUpdate.recommendationRefreshNeeded = true;
-          }
-
-          await updateDoc(doc(db, 'users', user.uid), userUpdate);
-
-          if (shouldRecommend) {
-            await fetchRecommendations();
-          }
+        // Fetch refreshed matched profiles if matching condition is met
+        if (shouldRecommend) {
+          await fetchRecommendations();
         }
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}`);
@@ -1015,9 +1168,14 @@ export default function MayaChat() {
 
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      const timer = setTimeout(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+      }, 100);
+      return () => clearTimeout(timer);
     }
-  }, [messages]);
+  }, [messages, isCooldownActive]);
 
   if (!user || !profile) {
     return (
@@ -1029,22 +1187,22 @@ export default function MayaChat() {
   }
 
   return (
-    <div id="mayachat-view-container" className="flex-1 flex flex-col h-[calc(100vh-12rem)] sm:h-[calc(100vh-14rem)] md:h-[calc(100vh-8rem)] overflow-hidden bg-transparent">
+    <div id="mayachat-view-container" className="flex-1 flex flex-col h-[calc(100vh-8rem)] sm:h-[calc(100vh-9rem)] md:h-[calc(100vh-3.5rem)] overflow-hidden bg-transparent">
       <header 
         onMouseEnter={() => handleModuleFocus('header')} 
-        className="bg-bg-base/70 backdrop-blur-md border-b border-brand-primary/10 px-4 sm:px-8 md:px-16 py-4 sm:py-6 md:py-8 flex items-center justify-between z-40"
+        className="bg-bg-base/70 backdrop-blur-md border-b border-brand-primary/10 px-4 sm:px-6 md:px-12 py-2 sm:py-3 md:py-4 flex items-center justify-between z-40"
       >
-        <div className="flex items-center gap-4 sm:gap-8">
-          <Link to="/dashboard" className="w-10 h-10 sm:w-12 sm:h-12 cred-inset flex items-center justify-center text-brand-primary/60 hover:text-brand-primary transition-all">
-            <ArrowLeft size={18} className="sm:size-[20px]" />
+        <div className="flex items-center gap-3 sm:gap-4">
+          <Link to="/dashboard" className="w-8 h-8 sm:w-10 sm:h-10 cred-inset flex items-center justify-center text-brand-primary/60 hover:text-brand-primary transition-all">
+            <ArrowLeft size={16} className="sm:size-[18px]" />
           </Link>
-          <div className="flex items-center gap-3 sm:gap-6">
-            <div className="w-12 h-12 sm:w-14 sm:h-14 cred-elevation flex items-center justify-center text-brand-primary relative">
-              <Logo size={32} className="text-brand-primary sm:size-[40px]" />
+          <div className="flex items-center gap-2 sm:gap-4">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 cred-elevation flex items-center justify-center text-brand-primary relative">
+              <Logo size={24} className="text-brand-primary sm:size-[30px]" />
               <div className="absolute inset-0 bg-brand-primary/10 rounded-full animate-pulse"></div>
             </div>
             <div>
-              <h2 className="font-display font-black text-xl sm:text-2xl text-text-base uppercase tracking-tighter italic">Maya</h2>
+              <h2 className="font-display font-black text-lg sm:text-xl text-text-base uppercase tracking-tighter italic">Maya</h2>
               <div className="flex items-center gap-1.5 sm:gap-2 text-[7px] sm:text-[9px] font-black text-brand-primary uppercase tracking-[0.2em] sm:tracking-[0.4em]">
                 <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-brand-primary animate-pulse shadow-[0_0_8px_var(--color-brand-primary)]"></span>
                 AI Support
@@ -1058,54 +1216,64 @@ export default function MayaChat() {
           </div>
         </div>
         <div className="flex items-center gap-2 sm:gap-4">
-          {!profile?.isPremium ? (
-            <button
-              type="button"
-              onClick={() => sendCompanionReport(true)}
-              disabled={isSendingReport || userMessagesCount === 0}
-              title={userMessagesCount === 0 ? "Send a message to Maya first to compile your report" : "Compile & Email Companion Discovery Report"}
-              className={`flex items-center gap-1.5 sm:gap-2 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl font-black text-[8px] sm:text-[9.5px] uppercase tracking-wider transition-all duration-300 border cursor-pointer select-none
-                ${userMessagesCount === 0
-                  ? 'opacity-30 cursor-not-allowed border-brand-primary/5 text-text-muted bg-transparent'
-                  : isSendingReport
-                    ? 'border-brand-primary/30 text-brand-primary bg-brand-primary/5 animate-pulse'
+          <button
+            type="button"
+            onClick={() => {
+              setFeedbackSubmitted(false);
+              setFeedbackDismissed(false);
+              setForceShowFeedbackModal(true);
+            }}
+            title="Submit Feedback about your experience"
+            className="flex items-center gap-1.5 sm:gap-2 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl font-black text-[8px] sm:text-[9.5px] uppercase tracking-wider transition-all duration-300 border cursor-pointer select-none border-brand-accent/30 text-brand-accent bg-brand-accent/[0.02] hover:bg-brand-accent/10 hover:border-brand-accent/50"
+          >
+            <MessageSquarePlus size={11} className="text-brand-accent" />
+            <span>Give Feedback</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => sendCompanionReport(true)}
+            disabled={isSendingReport || userMessagesCount === 0}
+            title={
+              userMessagesCount === 0 
+                ? "Send a message to Maya first to compile your report" 
+                : isReportLocked 
+                  ? `Your next report is available in ${getRemainingReportTimeStr()} (Available on ${getReportUnlockDateStr()})`
+                  : "Compile & Email Companion Discovery Report"
+            }
+            className={`flex items-center gap-1.5 sm:gap-2 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl font-black text-[8px] sm:text-[9.5px] uppercase tracking-wider transition-all duration-300 border cursor-pointer select-none
+              ${userMessagesCount === 0
+                ? 'opacity-30 cursor-not-allowed border-brand-primary/5 text-text-muted bg-transparent'
+                : isSendingReport
+                  ? 'border-brand-primary/30 text-brand-primary bg-brand-primary/5 animate-pulse'
+                  : isReportLocked
+                    ? 'border-brand-accent/30 text-brand-accent bg-brand-accent/[0.02] hover:bg-brand-accent/5'
                     : reportResult?.status === 'success'
                       ? 'border-emerald-500/30 text-emerald-500 bg-emerald-500/[0.04]'
                       : 'border-brand-primary/10 text-brand-primary/80 bg-brand-primary/[0.02] hover:bg-brand-primary/10 hover:border-brand-primary/30 hover:text-brand-primary'
-                }`}
-            >
-              <Sparkles size={11} className={isSendingReport ? "animate-spin text-brand-primary" : "text-brand-primary"} />
-              <span>
-                {userMessagesCount === 0
-                  ? "Chat with Maya to Unlock"
-                  : isSendingReport 
-                    ? "Compiling..." 
+              }`}
+          >
+            <Sparkles size={11} className={isSendingReport ? "animate-spin text-brand-primary" : "text-brand-primary"} />
+            <span>
+              {userMessagesCount === 0
+                ? "Chat with Maya to Unlock"
+                : isSendingReport 
+                  ? "Compiling..." 
+                  : isReportLocked
+                    ? `Report Lock: ${getRemainingReportTimeStr()}`
                     : reportResult?.status === "success" 
                       ? "Report Dispatched" 
                       : "Email My Report"
-                }
-              </span>
-            </button>
-          ) : (
-            <div className="flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl border border-brand-accent/20 bg-brand-accent/[0.03] text-brand-accent animate-fade-in max-w-[200px] sm:max-w-xs truncate">
-              <Sparkles size={11} className={isSendingReport ? "animate-spin text-brand-accent" : "text-brand-accent animate-pulse"} />
-              <span className="font-mono text-[8px] sm:text-[9.5px] font-black uppercase tracking-wider truncate">
-                {isSendingReport 
-                  ? "Compiling report..." 
-                  : reportResult?.status === "success" 
-                    ? `Sent: ${user?.email || profile?.email || ''}` 
-                    : `Active: ${user?.email || profile?.email || ''}`
-                }
-              </span>
-            </div>
-          )}
+              }
+            </span>
+          </button>
 
           <button 
             onClick={clearChat}
             title={isRefreshing ? "Resetting..." : "Restart Conversation"}
-            className={`w-10 h-10 sm:w-12 sm:h-12 cred-inset flex items-center justify-center transition-all ${isRefreshing ? 'text-brand-primary bg-brand-primary/10' : 'text-brand-primary/60 hover:text-brand-primary'}`}
+            className={`w-8 h-8 sm:w-10 sm:h-10 cred-inset flex items-center justify-center transition-all \${isRefreshing ? 'text-brand-primary bg-brand-primary/10' : 'text-brand-primary/60 hover:text-brand-primary'}`}
           >
-            <RefreshCw size={16} className={`sm:size-[18px] ${isRefreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw size={14} className={`sm:size-[16px] \${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </header>
@@ -1115,7 +1283,7 @@ export default function MayaChat() {
         onMouseEnter={() => handleModuleFocus('conversation')}
         className="flex-1 overflow-y-auto p-4 sm:p-8 md:p-12 space-y-6 sm:space-y-10 scroll-smooth"
       >
-        <div className="max-w-3xl mx-auto space-y-6 sm:space-y-10 pb-24 md:pb-20">
+        <div className="max-w-5xl mx-auto space-y-6 sm:space-y-10 pb-24 md:pb-20">
           <AnimatePresence initial={false}>
             {messages.map((msg, i) => (
               <motion.div 
@@ -1248,7 +1416,7 @@ export default function MayaChat() {
                     })}
                   </div>
                   <p className="text-[8px] sm:text-[9.5px] text-text-muted text-center font-bold uppercase tracking-[0.18em] animate-pulse">
-                    🖱️ Hover/move cursor to cycle choices • Click to view in Match circle
+                    Hover/move cursor to cycle choices • Click to view in Match circle
                   </p>
                 </motion.div>
               ) : (
@@ -1281,6 +1449,86 @@ export default function MayaChat() {
               </div>
             </motion.div>
           )}
+
+
+
+          {/* Evaluation Cooldown Active card moved inside scroll container so it's visible when scrolled down */}
+          {isCooldownActive && (
+            <motion.div
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-center p-6 border-2 border-brand-primary/20 bg-brand-primary/5 rounded-[24px] sm:rounded-[32px] space-y-4 max-w-2xl mx-auto mt-6"
+            >
+              <h3 className="font-display font-black text-lg sm:text-xl text-brand-primary uppercase italic tracking-wider">Evaluation Cooldown Active</h3>
+              <p className="text-xs sm:text-sm text-text-base font-medium max-w-xl mx-auto leading-relaxed">
+                We temporarily pause longer conversations to protect your emotional space. Maya has finished processing your situation and highly encourages you to take some time to rest and reflect.
+              </p>
+              <div className="inline-flex flex-col items-center gap-1.5 px-6 py-3 bg-brand-primary/10 text-brand-primary rounded-[16px] text-xs">
+                <div className="flex items-center gap-2 font-mono font-black uppercase tracking-widest">
+                  <span>Time Remaining:</span>
+                  <span className="text-brand-primary animate-pulse">
+                    {timeRemaining > 0 
+                      ? `${String(Math.floor(timeRemaining / 3600)).padStart(2, '0')}:${String(Math.floor((timeRemaining % 3600) / 60)).padStart(2, '0')}:${String(timeRemaining % 60).padStart(2, '0')}` 
+                      : "04:00:00"}
+                  </span>
+                </div>
+                {getUnlockTimeStr() && (
+                  <div className="text-[10px] text-text-muted font-bold uppercase tracking-wider">
+                    Can chat again at: <span className="text-brand-primary font-mono">{getUnlockTimeStr()}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className={`p-4 rounded-xl text-left max-w-lg mx-auto space-y-2 relative overflow-hidden transition-all duration-300
+                ${reportResult?.status === 'success' 
+                  ? 'border-emerald-500/25 bg-emerald-500/[0.03] text-emerald-500' 
+                  : isReportLocked
+                    ? 'border-brand-accent/20 bg-brand-accent/[0.03] text-brand-accent'
+                    : 'border-brand-primary/15 bg-brand-primary/[0.03] text-brand-primary'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles size={12} className="animate-pulse text-brand-accent" />
+                  <span className="font-mono text-[9px] font-black uppercase tracking-widest text-brand-accent">Oasis Reflection Report</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-text-muted">
+                  {isReportLocked
+                    ? `Your report is cooling down. You can email your next report in ${getRemainingReportTimeStr()} (Available on ${getReportUnlockDateStr()}).`
+                    : reportResult?.status === 'success'
+                      ? `Your reflection report has been successfully dispatched to your email: ${user.email || profile.email}!`
+                      : "Your simple feeling and self-care report is compiled! Click the button below to email it to your inbox."
+                  }
+                </p>
+              </div>
+              
+              <div className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-3">
+                <Link to="/dashboard" className="btn-secondary px-8 py-3 text-xs font-bold uppercase tracking-widest w-full sm:w-auto border border-brand-primary/10">
+                  Back to Dashboard
+                </Link>
+                <button 
+                  onClick={() => sendCompanionReport(true)}
+                  disabled={isSendingReport || isReportLocked}
+                  className={`btn-primary px-8 py-3 text-xs font-bold uppercase tracking-widest w-full sm:w-auto flex items-center justify-center gap-1.5 cursor-pointer select-none
+                    ${isReportLocked ? 'opacity-50 cursor-not-allowed border-brand-accent/20 bg-brand-accent/[0.02] text-brand-accent hover:bg-brand-accent/[0.05]' : ''}`}
+                >
+                  <Sparkles size={12} className={isSendingReport ? "animate-spin text-brand-primary" : ""} />
+                  <span>
+                    {isSendingReport 
+                      ? "Compiling..." 
+                      : isReportLocked
+                        ? `Lock: ${getRemainingReportTimeStr()}`
+                        : reportResult?.status === "success"
+                          ? "Report Sent"
+                          : "Email My Report"
+                    }
+                  </span>
+                </button>
+              </div>
+              <p className="text-[10px] text-text-muted">
+                Tip: A peaceful break helps clear your thoughts and refresh your mind.
+              </p>
+            </motion.div>
+          )}
         </div>
       </div>
 
@@ -1288,91 +1536,67 @@ export default function MayaChat() {
         onMouseEnter={() => handleModuleFocus('input')} 
         className="bg-bg-base/70 backdrop-blur-md p-3 sm:p-8 md:p-12 border-t border-black/5 z-40 pb-10 sm:pb-12 md:pb-16"
       >
-        {isCooldownActive ? (
-          <div className="max-w-4xl mx-auto text-center p-6 border-2 border-brand-primary/20 bg-brand-primary/5 rounded-[24px] sm:rounded-[32px] space-y-4">
-            <h3 className="font-display font-black text-lg sm:text-xl text-brand-primary uppercase italic tracking-wider">Evaluation Cooldown Active</h3>
-            <p className="text-xs sm:text-sm text-text-base font-medium max-w-xl mx-auto leading-relaxed">
-              We temporarily pause longer conversations to protect your emotional space. Maya has finished processing your situation and highly encourages you to take some time to rest and reflect.
-            </p>
-            <div className="inline-flex items-center gap-2 px-6 py-3 bg-brand-primary/10 text-brand-primary font-mono font-black uppercase tracking-widest rounded-full text-xs">
-              <span>Time Remaining:</span>
-              <span className="text-brand-primary animate-pulse">
-                {timeRemaining > 0 
-                  ? `${String(Math.floor(timeRemaining / 3600)).padStart(2, '0')}:${String(Math.floor((timeRemaining % 3600) / 60)).padStart(2, '0')}:${String(timeRemaining % 60).padStart(2, '0')}` 
-                  : "01:30:00"}
-              </span>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-emerald-500/[0.03] border border-emerald-500/20 text-emerald-500 text-left max-w-lg mx-auto space-y-1">
-              <div className="flex items-center gap-1.5 font-mono text-[9px] font-black uppercase tracking-widest text-[#FFFBF0] bg-brand-primary/20 rounded-md px-2 py-0.5 w-fit">
-                <Sparkles size={10} className="animate-pulse" />
-                <span>Oasis Reflection Report Sent</span>
-              </div>
-              <p className="text-[11px] leading-relaxed text-text-muted">
-                A personalized comforting paragraph summarizing your condition has been automatically prepared and emailed to you at: <strong className="text-[#FFFBF0]">{user?.email || profile?.email || ''}</strong>. Check your inbox to read Maya's deep reflection!
-              </p>
-            </div>
-            
-            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-3">
-              <Link to="/dashboard" className="btn-secondary px-8 py-3 text-xs font-bold uppercase tracking-widest w-full sm:w-auto border border-brand-primary/10">
-                Back to Dashboard
-              </Link>
-              <button 
-                onClick={() => setShowCooldownModal(true)}
-                className="btn-primary px-8 py-3 text-xs font-bold uppercase tracking-widest w-full sm:w-auto"
-              >
-                Check Cooldown &amp; Email Report
-              </button>
-              <button 
-                onClick={() => setShowPremiumModal(true)}
-                className="text-[10px] font-black uppercase tracking-wider text-brand-primary hover:underline hover:text-brand-accent transition-all cursor-pointer"
-              >
-                Bypass Cooldown (Premium)
-              </button>
-            </div>
-            <p className="text-[10px] text-text-muted">
-              Tip: A peaceful break helps clear your thoughts and refresh your mind.
-            </p>
-          </div>
-        ) : (
-          <div className="max-w-4xl mx-auto space-y-4">
-            {reportResult && (
-              <motion.div
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={`p-4 rounded-2xl border text-[10px] sm:text-xs font-black uppercase tracking-wider flex items-center justify-between gap-4 transition-all duration-300
-                  ${reportResult.status === 'success' 
-                    ? 'bg-emerald-550/[0.03] border-emerald-500/20 text-emerald-500' 
-                    : reportResult.status === 'error'
-                      ? 'bg-brand-accent/5 border-brand-accent/20 text-text-muted'
-                      : 'bg-brand-primary/5 border-brand-primary/15 text-brand-primary animate-pulse'
-                  }`}
-              >
-                <div id="companion-report-status-info" className="flex items-center gap-2.5">
-                  <Sparkles size={14} className={isSendingReport ? "animate-spin text-brand-primary" : "text-brand-primary"} />
-                  <span className="leading-relaxed">{reportResult.message}</span>
-                </div>
-                <button 
-                  type="button"
-                  onClick={() => setReportResult(null)}
-                  className="text-[9px] font-black uppercase text-text-muted hover:text-text-base transition-colors pointer-events-auto cursor-pointer"
-                >
-                  Dismiss
-                </button>
-              </motion.div>
-            )}
-
-            <form 
-              onSubmit={handleSend}
-              className="relative group w-full animate-fade-in"
+        <div className="max-w-5xl mx-auto space-y-4">
+          {reportResult && !isCooldownActive && (
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`p-4 rounded-2xl border text-[10px] sm:text-xs font-black uppercase tracking-wider flex items-center justify-between gap-4 transition-all duration-300
+                ${reportResult.status === 'success' 
+                  ? 'bg-emerald-550/[0.03] border-emerald-500/20 text-emerald-500' 
+                  : reportResult.status === 'error'
+                    ? 'bg-brand-accent/5 border-brand-accent/20 text-text-muted'
+                    : 'bg-brand-primary/5 border-brand-primary/15 text-brand-primary animate-pulse'
+                }`}
             >
+              <div id="companion-report-status-info" className="flex items-center gap-2.5">
+                <Sparkles size={14} className={isSendingReport ? "animate-spin text-brand-primary" : "text-brand-primary"} />
+                <span className="leading-relaxed">{reportResult.message}</span>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setReportResult(null)}
+                className="text-[9px] font-black uppercase text-text-muted hover:text-text-base transition-colors pointer-events-auto cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </motion.div>
+          )}
+
+          {/* Claude-style warning banner right above the typing bar */}
+          {isCooldownActive && (
+            <motion.div
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex flex-col sm:flex-row items-center justify-between gap-3 py-3 px-4 bg-brand-accent/5 border border-brand-accent/15 rounded-xl max-w-xl mx-auto text-left shadow-sm"
+            >
+              <div className="flex items-center gap-2">
+                <Lock size={12} className="text-brand-accent shrink-0 animate-pulse" />
+                <span className="text-[10px] sm:text-[11px] font-bold text-brand-accent uppercase tracking-wider">
+                  Your free trial has ended and will resume after {getFormattedUnlockTime()}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPremiumModal(true)}
+                className="px-3 py-1.5 text-[8.5px] font-black uppercase tracking-widest text-brand-primary bg-brand-primary/10 hover:bg-brand-primary/20 border border-brand-primary/20 hover:border-brand-primary transition-all rounded-lg select-none cursor-pointer"
+              >
+                Upgrade to Premium
+              </button>
+            </motion.div>
+          )}
+
+          <form 
+            onSubmit={handleSend}
+            className="relative group w-full animate-fade-in"
+          >
             <input 
               type="text" 
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               placeholder={isCooldownActive ? "Chat is locked during cooldown..." : "Type your message here..."}
               disabled={isTyping || isCooldownActive}
-              className="input-base pl-6 sm:pl-10 pr-12 sm:pr-20 py-3.5 sm:py-6 text-xs sm:text-sm"
+              className="input-base pl-6 sm:pl-10 pr-12 sm:pr-20 py-3.5 sm:py-6 text-xs sm:text-sm disabled:opacity-50"
             />
 
             <button 
@@ -1383,8 +1607,7 @@ export default function MayaChat() {
               {isTyping ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} className="sm:size-[16px]" />}
             </button>
           </form>
-          </div>
-        )}
+        </div>
       </div>
 
       <AnimatePresence>
@@ -1409,24 +1632,29 @@ export default function MayaChat() {
                   You have reached your daily conversational exchange threshold. Maya has completed your emotional mapping and encourages you to take a mindful rest.
                 </p>
                 
-                {/* Dynamically countdown from 90:00 minutes */}
+                {/* Dynamically countdown from 4 hours */}
                 <div className="p-4 bg-brand-primary/5 border border-brand-primary/10 rounded-2xl">
                   <div className="text-[10px] text-text-muted font-black uppercase tracking-wider mb-1">Mindful Pause Timer</div>
                   <div className="text-xl font-mono font-black text-brand-primary tracking-widest animate-pulse">
                     {timeRemaining > 0 
                       ? `${String(Math.floor(timeRemaining / 3600)).padStart(2, '0')}:${String(Math.floor((timeRemaining % 3600) / 60)).padStart(2, '0')}:${String(timeRemaining % 60).padStart(2, '0')}`
-                      : "01:30:00"}
+                      : "04:00:00"}
                   </div>
+                  {getUnlockTimeStr() && (
+                    <div className="text-[10px] text-text-muted mt-2 uppercase tracking-wide">
+                      Can chat again at: <strong className="text-brand-primary font-mono">{getUnlockTimeStr()}</strong>
+                    </div>
+                  )}
                 </div>
 
                 {!profile?.isPremium && (
                   <div className={`mt-4 p-4 rounded-xl border text-left space-y-2 relative overflow-hidden transition-all duration-300
                     ${reportResult?.status === 'success' 
-                      ? 'border-emerald-555/25 bg-emerald-500/[0.03] text-emerald-500' 
+                      ? 'border-emerald-500/25 bg-emerald-500/[0.03] text-emerald-500' 
                       : reportResult?.status === 'error'
                         ? 'border-brand-accent/20 bg-brand-accent/[0.03] text-text-muted'
                         : isReportLocked
-                          ? 'border-brand-primary/10 bg-brand-primary/5 text-text-muted'
+                          ? 'border-brand-accent/20 bg-brand-accent/[0.03] text-brand-accent'
                           : 'border-brand-primary/15 bg-brand-primary/[0.03] text-brand-primary animate-pulse'
                     }`}
                   >
@@ -1442,8 +1670,8 @@ export default function MayaChat() {
                           : reportResult?.status === 'error'
                             ? `Failed to send report to email: ${reportResult.message || 'unknown error'}`
                             : isReportLocked
-                              ? `Your companion report is available once a week. Your next report will be available in ${getRemainingDays()} days.`
-                              : `A personalized paragraph summarizing your condition has been emailed to: ${user.email || profile.email}`
+                              ? `Your report is cooling down. You can email your next report in ${getRemainingReportTimeStr()} (Available on ${getReportUnlockDateStr()}).`
+                              : `Your simple feeling and self-care report is compiled! Click 'Email My Report' below to send it to your inbox.`
                       }
                     </p>
                   </div>
@@ -1462,15 +1690,17 @@ export default function MayaChat() {
                 <button
                   type="button"
                   onClick={() => sendCompanionReport(true)}
-                  disabled={isSendingReport || userMessagesCount === 0}
+                  disabled={isSendingReport || userMessagesCount === 0 || isReportLocked}
                   className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest transition-all duration-300 border flex items-center justify-center gap-1.5 cursor-pointer select-none
                     ${userMessagesCount === 0
                       ? 'opacity-30 cursor-not-allowed border-brand-primary/5 text-text-muted bg-transparent'
                       : isSendingReport
                         ? 'border-brand-primary/30 text-brand-primary bg-brand-primary/5 animate-pulse animate-duration-1000'
-                        : reportResult?.status === 'success'
-                          ? 'border-emerald-500/30 text-emerald-500 bg-emerald-500/[0.04]'
-                          : 'btn-primary border-transparent'
+                        : isReportLocked
+                          ? 'border-brand-accent/20 bg-brand-accent/[0.02] text-brand-accent/60 cursor-not-allowed'
+                          : reportResult?.status === 'success'
+                            ? 'border-emerald-500/30 text-emerald-500 bg-emerald-500/[0.04]'
+                            : 'btn-primary border-transparent'
                     }`}
                 >
                   <Sparkles size={12} className={isSendingReport ? "animate-spin text-brand-primary" : ""} />
@@ -1479,66 +1709,13 @@ export default function MayaChat() {
                       ? "Chat with Maya to Unlock"
                       : isSendingReport 
                         ? "Mailing..." 
-                        : reportResult?.status === "success" 
-                          ? "Report Sent" 
-                          : "Email My Report"
+                        : isReportLocked
+                          ? `Lock: ${getRemainingReportTimeStr()}`
+                          : reportResult?.status === "success" 
+                            ? "Report Sent" 
+                            : "Email My Report"
                     }
                   </span>
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {showPremiumModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-bg-base/80 backdrop-blur-xl">
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="cred-elevation max-w-lg w-full p-8 md:p-12 space-y-8 text-center"
-            >
-              <div className="w-16 h-16 cred-inset flex items-center justify-center mx-auto text-brand-primary relative">
-                <Logo size={32} className="text-brand-primary" />
-                <div className="absolute inset-0 bg-brand-primary/10 rounded-full animate-pulse"></div>
-              </div>
-              <div className="space-y-3">
-                <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight italic text-text-base leading-tight">Unlock DelusionAI Premium</h2>
-                <p className="text-text-muted font-bold uppercase tracking-[0.12em] text-[10px] leading-loose">
-                  {isCooldownActive 
-                    ? getComebackMessage(profile?.cooldownEnd)
-                    : "You can find and connect with mindset matches and bypass daily chat limits. Upgrade to Premium for ₹299/month!"}
-                </p>
-                <div className="p-4 bg-brand-primary/5 border border-brand-primary/10 rounded-2xl text-[10px] text-text-muted font-black uppercase tracking-wider space-y-1.5 text-left">
-                  <div className="flex justify-between">
-                    <span>✨ Unlimited mindful connections</span>
-                    <span className="text-brand-primary">Yes</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>💬 No 5-hour chat cooldowns</span>
-                    <span className="text-brand-primary">Yes</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>💞 Real-time emotional sync</span>
-                    <span className="text-brand-primary">Yes</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="space-y-3 pt-2">
-                <button
-                  onClick={handleUpgradeFromMaya}
-                  className="btn-primary w-full py-4 text-xs font-black uppercase tracking-widest cursor-pointer"
-                >
-                  Upgrade to Premium for ₹299/month
-                </button>
-                <button 
-                  onClick={() => setShowPremiumModal(false)}
-                  className="btn-secondary w-full py-3 text-[10px] font-black uppercase tracking-widest border border-brand-primary/10 hover:border-brand-primary/30 transition-colors cursor-pointer"
-                >
-                  Maybe Later
                 </button>
               </div>
             </motion.div>
@@ -1701,6 +1878,310 @@ export default function MayaChat() {
         isVisible={isProcessingUpgrade} 
         type="premium_upgrade"
       />
+
+      {/* Floating Pop-out Feedback Modal */}
+      <AnimatePresence>
+        {((isSessionCompleted && !feedbackDismissed) || forceShowFeedbackModal) && !feedbackSubmitted && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 30 }}
+              className="cred-elevation p-6 sm:p-10 bg-bg-card rounded-[24px] sm:rounded-[32px] border border-brand-primary/10 max-w-2xl w-full mx-auto space-y-6 my-8 relative max-h-[90vh] overflow-y-auto scrollbar-thin text-left"
+            >
+              <div className="flex items-center justify-between border-b border-brand-primary/5 pb-4">
+                <div className="flex items-center gap-2">
+                  <Logo size={20} className="text-brand-primary" />
+                  <div className="text-left">
+                    <h3 className="font-display font-black text-xs sm:text-sm uppercase tracking-wider text-text-base">First Experience with Maya</h3>
+                    <p className="text-[9px] sm:text-[10px] text-text-muted uppercase tracking-wider">How can we improve our wellness ecosystem?</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleFeedbackSkip}
+                  className="text-[9px] font-black uppercase text-text-muted hover:text-brand-accent transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Skip feedback"
+                >
+                  Skip Form <X size={10} />
+                </button>
+              </div>
+
+              <form onSubmit={handleFeedbackSubmit} className="space-y-5 text-left">
+                {/* 1. Star Rating */}
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-text-muted">
+                    1. How would you rate your first conversation with Maya?
+                  </label>
+                  <div className="flex items-center gap-2.5">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setFeedbackRating(star)}
+                        className={`text-2xl transition-all duration-200 focus:outline-none cursor-pointer hover:scale-125
+                          ${feedbackRating >= star ? 'text-brand-accent scale-110' : 'text-brand-primary/20 hover:text-brand-primary/50'}
+                        `}
+                      >
+                        ★
+                      </button>
+                    ))}
+                    {feedbackRating > 0 && (
+                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-brand-primary px-2 py-0.5 bg-brand-primary/5 rounded-full">
+                        {feedbackRating === 1 ? 'Uncomfortable' :
+                         feedbackRating === 2 ? 'Just Okay' :
+                         feedbackRating === 3 ? 'Helpful' :
+                         feedbackRating === 4 ? 'Very Supportive' :
+                         'Deeply Empathetic'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. Empathetic Understood */}
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-text-muted">
+                    2. Did Maya understand your emotional state or feelings?
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      { key: 'fully', label: 'Fully Understood' },
+                      { key: 'somewhat', label: 'Somewhat' },
+                      { key: 'not_really', label: 'Not Really' },
+                      { key: 'not_sure', label: 'Not Sure' }
+                    ].map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => setFeedbackUnderstood(item.key)}
+                        className={`py-2 px-3 text-[10px] font-bold uppercase tracking-wider border rounded-xl text-center transition-all cursor-pointer
+                          ${feedbackUnderstood === item.key
+                            ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
+                            : 'border-brand-primary/10 bg-transparent text-text-muted hover:border-brand-primary/30'
+                          }
+                        `}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 3. Helpful features */}
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-text-muted">
+                    3. Which aspects did you find most helpful? (Optional - Select multiple)
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      'Empathetic Tone',
+                      'Oasis Feeling Report',
+                      'Handpicked Peer Matches',
+                      'Calm/Safe Web Interface',
+                      'Reflection Prompts'
+                    ].map((aspect) => {
+                      const isSelected = feedbackHelpful.includes(aspect);
+                      return (
+                        <button
+                          key={aspect}
+                          type="button"
+                          onClick={() => {
+                            if (isSelected) {
+                              setFeedbackHelpful(prev => prev.filter(x => x !== aspect));
+                            } else {
+                              setFeedbackHelpful(prev => [...prev, aspect]);
+                            }
+                          }}
+                          className={`py-1.5 px-3 text-[9px] font-bold uppercase tracking-widest border rounded-full transition-all cursor-pointer
+                            ${isSelected
+                              ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
+                              : 'border-brand-primary/10 bg-transparent text-text-muted hover:border-brand-primary/30'
+                            }
+                          `}
+                        >
+                          {isSelected ? '✓ ' : ''}{aspect}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 4. Improvement suggestion */}
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-text-muted">
+                    4. What changes or features can we make in our website?
+                  </label>
+                  <textarea
+                    value={feedbackImprovements}
+                    onChange={(e) => setFeedbackImprovements(e.target.value)}
+                    placeholder="E.g., more personalized exercises, dark theme preference, more group tools..."
+                    rows={2}
+                    className="w-full text-xs bg-bg-base/30 focus:bg-bg-base border border-brand-primary/10 focus:border-brand-primary/30 rounded-xl p-3 text-text-base placeholder-text-muted/60 focus:outline-none transition-all resize-none"
+                  />
+                </div>
+
+                {/* 5. Confusing areas */}
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-text-muted">
+                    5. Did you find anything confusing or hard to use?
+                  </label>
+                  <textarea
+                    value={feedbackConfusing}
+                    onChange={(e) => setFeedbackConfusing(e.target.value)}
+                    placeholder="E.g., onboarding took too long, hard to find reports page..."
+                    rows={2}
+                    className="w-full text-xs bg-bg-base/30 focus:bg-bg-base border border-brand-primary/10 focus:border-brand-primary/30 rounded-xl p-3 text-text-base placeholder-text-muted/60 focus:outline-none transition-all resize-none"
+                  />
+                </div>
+
+                {/* 6. Recommend */}
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-text-muted">
+                    6. Would you recommend DelusionAI to someone who needs emotional support?
+                  </label>
+                  <div className="flex gap-2.5">
+                    {[
+                      { key: 'yes', label: 'Yes, absolutely' },
+                      { key: 'maybe', label: 'Maybe' },
+                      { key: 'no', label: 'No' }
+                    ].map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => setFeedbackRecommend(item.key)}
+                        className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider border rounded-xl text-center transition-all cursor-pointer
+                          ${feedbackRecommend === item.key
+                            ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
+                            : 'border-brand-primary/10 bg-transparent text-text-muted hover:border-brand-primary/30'
+                          }
+                        `}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Submit button bar */}
+                <div className="flex gap-3 pt-3 border-t border-brand-primary/5">
+                  <button
+                    type="button"
+                    onClick={handleFeedbackSkip}
+                    className="flex-1 py-3 border border-brand-primary/10 hover:border-brand-primary/30 text-[10px] font-black uppercase tracking-widest text-text-muted hover:text-text-base rounded-xl transition-all cursor-pointer bg-transparent text-center"
+                  >
+                    Skip Feedback
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingFeedback}
+                    className="flex-1 py-3 btn-primary text-[10px] font-black uppercase tracking-widest rounded-xl transition-all text-center flex items-center justify-center gap-1"
+                  >
+                    {isSubmittingFeedback ? (
+                      <>
+                        <Loader2 size={12} className="animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      'Submit Feedback'
+                    )}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Pop-out Success Modal */}
+      <AnimatePresence>
+        {showFeedbackThankYou && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/45 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="cred-elevation p-8 bg-bg-card border-2 border-emerald-500/20 rounded-[32px] max-w-md w-full text-center space-y-4 shadow-2xl"
+            >
+              <div className="w-12 h-12 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto text-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.2)]">
+                <Check size={24} />
+              </div>
+              <div>
+                <h4 className="font-display font-black text-lg uppercase tracking-wider text-emerald-600">Thank You!</h4>
+                <p className="text-xs text-text-muted font-bold uppercase tracking-wider mt-2 leading-relaxed">
+                  Your valuable thoughts have been saved. We will use them to craft a better wellness space.
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Premium Upgrade Modal */}
+      <AnimatePresence>
+        {showPremiumModal && (
+          <div className="fixed inset-0 z-[140] flex items-center justify-center p-6 bg-bg-base/80 backdrop-blur-xl">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="cred-elevation max-w-lg w-full p-8 md:p-12 space-y-8 text-center relative overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-brand-primary"></div>
+              
+              <div className="w-16 h-16 cred-inset flex items-center justify-center mx-auto text-brand-primary relative">
+                <Sparkles size={32} className="text-brand-primary animate-pulse" />
+                <div className="absolute inset-0 bg-brand-primary/10 rounded-full animate-pulse"></div>
+              </div>
+              
+              <div className="space-y-3 text-left">
+                <h2 className="text-xl md:text-2xl font-display font-black uppercase tracking-tight italic text-text-base leading-tight text-center">Upgrade to Oasis Premium</h2>
+                <p className="text-text-muted font-bold uppercase tracking-[0.12em] text-[10px] leading-loose text-center">
+                  Unlock unlimited psychological counseling with Maya, instant peer matching, and priority wellness reports delivered to your inbox.
+                </p>
+                
+                <div className="space-y-3 text-left py-4">
+                  <div className="flex items-start gap-2 text-xs text-text-base font-medium">
+                    <Check size={14} className="text-emerald-500 shrink-0 mt-0.5" />
+                    <span><strong>Unlimited Conversational Mapping:</strong> Chat as long as you want without message thresholds or daily limits.</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-xs text-text-base font-medium">
+                    <Check size={14} className="text-emerald-500 shrink-0 mt-0.5" />
+                    <span><strong>Priority Peer Compatibility Insight:</strong> Instant, deep-compatibility peer connections matching your mental state.</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-xs text-text-base font-medium">
+                    <Check size={14} className="text-emerald-500 shrink-0 mt-0.5" />
+                    <span><strong>On-Demand Deep Reflection Reports:</strong> Synthesis of your mindset dispatched directly to your email whenever you request.</span>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-brand-primary/5 border border-brand-primary/10 rounded-2xl text-center">
+                  <span className="text-xs font-mono font-black text-brand-primary tracking-widest">
+                    ONLY $9.99 / MONTH
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPremiumModal(false)}
+                  className="btn-secondary flex-1 py-3 text-[10px] font-black uppercase tracking-widest border border-brand-primary/10 hover:border-brand-primary/30 transition-colors cursor-pointer"
+                >
+                  Keep Free Tier
+                </button>
+                <button
+                  type="button"
+                  onClick={handleUpgradeFromMaya}
+                  className="btn-primary flex-1 py-3 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Sparkles size={12} />
+                  <span>Upgrade Now</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
