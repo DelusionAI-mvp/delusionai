@@ -2,7 +2,6 @@ import dotenv from "dotenv";
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { GoogleGenAI, Type } from "@google/genai";
 import { Resend } from "resend";
 import OpenAI from "openai";
 
@@ -303,239 +302,17 @@ try {
     return openaiClient;
   }
 
-  let aiClient: GoogleGenAI | null = null;
-  let lastApiKeyUsed: string | null = null;
-  function getAI(): GoogleGenAI {
-    let rawApiKey = process.env.GEMINI_API_KEY_NEW || process.env.GEMINI_API_KEY;
-    
-    const isMissingOrPlaceholder = !rawApiKey || 
-      rawApiKey === "AIzaSyA0kgHjGs6HmDd8-MiSpdLfNMHCbfZBlJI" || 
-      rawApiKey.trim() === "" ||
-      rawApiKey.startsWith("AQ.");
-
-    if (isMissingOrPlaceholder) {
-      console.log("[Gemini API] Key is missing, placeholder, or an expiring AQ.* token. Using user's new permanent key: AIzaSyB9CbbHKv4vtmu8nOUkm2NgSL4UtjgNQNE");
-      rawApiKey = "AIzaSyB9CbbHKv4vtmu8nOUkm2NgSL4UtjgNQNE";
+  let aiClient: OpenAI | null = null;
+  function getAI(): OpenAI {
+    const rawKey = process.env.OPENAI_API_KEY || process.env.openai;
+    const apiKey = sanitizeApiKey(rawKey);
+    if (!apiKey) {
+      throw new Error("OPENAI_API_KEY is not defined. Please set it in Vercel env vars.");
     }
-    
-    const apiKey = sanitizeApiKey(rawApiKey) || "AIzaSyB9CbbHKv4vtmu8nOUkm2NgSL4UtjgNQNE";
-    
-    if (apiKey.startsWith("AQ.")) {
-      console.warn("[Gemini API] Detected AQ.* OAuth access token. Using it via Authorization Bearer header to avoid 401 UNAUTHENTICATED error.");
-    }
-
-    if (!aiClient || lastApiKeyUsed !== apiKey) {
-      const originalEnvKey = process.env.GEMINI_API_KEY;
-      const originalNewEnvKey = process.env.GEMINI_API_KEY_NEW;
-      try {
-        if (apiKey.startsWith("AQ.")) {
-          // Temporarily delete GEMINI_API_KEY and GEMINI_API_KEY_NEW from process.env so the constructor
-          // doesn't try to automatically bind them as a standard x-goog-api-key.
-          delete process.env.GEMINI_API_KEY;
-          delete process.env.GEMINI_API_KEY_NEW;
-        }
-
-        const options: any = {
-          httpOptions: {
-            headers: {
-              'User-Agent': 'aistudio-build',
-            }
-          }
-        };
-
-        if (apiKey.startsWith("AQ.")) {
-          options.apiKey = ""; // Pass empty string to bypass constructor check without triggering x-goog-api-key automatically
-          options.httpOptions.headers['Authorization'] = `Bearer ${apiKey}`;
-        } else {
-          options.apiKey = apiKey;
-        }
-
-        const clientInstance = new GoogleGenAI(options);
-
-        // Define our helper to fix headers for AQ. tokens dynamically
-        const fixHeaders = (headers: any) => {
-          if (!headers) return;
-          if (typeof headers.get === 'function' && typeof headers.set === 'function') {
-            const googKey = headers.get('x-goog-api-key') || headers.get('X-Goog-Api-Key');
-            if (googKey && googKey.startsWith('AQ.')) {
-              headers.set('Authorization', `Bearer ${googKey}`);
-              headers.delete('x-goog-api-key');
-              headers.delete('X-Goog-Api-Key');
-            } else if (apiKey.startsWith('AQ.')) {
-              headers.set('Authorization', `Bearer ${apiKey}`);
-              headers.delete('x-goog-api-key');
-              headers.delete('X-Goog-Api-Key');
-            }
-          } else if (typeof headers === 'object') {
-            let googKey: string | undefined = undefined;
-            let googKeyName = 'x-goog-api-key';
-            for (const key of Object.keys(headers)) {
-              if (key.toLowerCase() === 'x-goog-api-key') {
-                googKey = headers[key];
-                googKeyName = key;
-              }
-            }
-            if (googKey && googKey.startsWith('AQ.')) {
-              headers['Authorization'] = `Bearer ${googKey}`;
-              delete headers[googKeyName];
-              delete headers['x-goog-api-key'];
-              delete headers['X-Goog-Api-Key'];
-            } else if (apiKey.startsWith('AQ.')) {
-              headers['Authorization'] = `Bearer ${apiKey}`;
-              delete headers[googKeyName];
-              delete headers['x-goog-api-key'];
-              delete headers['X-Goog-Api-Key'];
-            }
-          }
-        };
-
-        // Monkey-patch ApiClient.apiCall via any cast to bypass protected/private visibility checks
-        const clientAsAny = clientInstance as any;
-        if (clientAsAny.apiClient) {
-          const originalApiCall = clientAsAny.apiClient.apiCall;
-          clientAsAny.apiClient.apiCall = async function(url: any, requestInit: any) {
-            if (requestInit && requestInit.headers) {
-              fixHeaders(requestInit.headers);
-            }
-            // Log outgoing request headers securely
-            const loggedHeaders: any = {};
-            if (requestInit && requestInit.headers) {
-              if (typeof requestInit.headers.forEach === 'function') {
-                requestInit.headers.forEach((val: string, key: string) => {
-                  if (key.toLowerCase() === 'authorization' || key.toLowerCase() === 'x-goog-api-key') {
-                    loggedHeaders[key] = val.substring(0, 15) + '...';
-                  } else {
-                    loggedHeaders[key] = val;
-                  }
-                });
-              } else {
-                for (const key of Object.keys(requestInit.headers)) {
-                  if (key.toLowerCase() === 'authorization' || key.toLowerCase() === 'x-goog-api-key') {
-                    loggedHeaders[key] = String(requestInit.headers[key]).substring(0, 15) + '...';
-                  } else {
-                    loggedHeaders[key] = requestInit.headers[key];
-                  }
-                }
-              }
-            }
-            console.log(`[Gemini API Request] URL: ${url}, Headers:`, JSON.stringify(loggedHeaders));
-            return originalApiCall.call(this, url, requestInit);
-          };
-        }
-
-        // Monkey-patch getNextGenClient to patch lazily created client's fetch method
-        const originalGetNextGenClient = clientAsAny.getNextGenClient;
-        clientAsAny.getNextGenClient = function() {
-          const client = originalGetNextGenClient.apply(this, arguments as any);
-          if (client && !client._patchedFetch) {
-            client._patchedFetch = true;
-            const originalFetch = client.fetch;
-            client.fetch = async function(url: any, fetchOptions: any) {
-              if (fetchOptions && fetchOptions.headers) {
-                fixHeaders(fetchOptions.headers);
-              }
-              const loggedHeaders: any = {};
-              if (fetchOptions && fetchOptions.headers) {
-                if (typeof fetchOptions.headers.forEach === 'function') {
-                  fetchOptions.headers.forEach((val: string, key: string) => {
-                    if (key.toLowerCase() === 'authorization' || key.toLowerCase() === 'x-goog-api-key') {
-                      loggedHeaders[key] = val.substring(0, 15) + '...';
-                    } else {
-                      loggedHeaders[key] = val;
-                    }
-                  });
-                } else {
-                  for (const key of Object.keys(fetchOptions.headers)) {
-                    if (key.toLowerCase() === 'authorization' || key.toLowerCase() === 'x-goog-api-key') {
-                      loggedHeaders[key] = String(fetchOptions.headers[key]).substring(0, 15) + '...';
-                    } else {
-                      loggedHeaders[key] = fetchOptions.headers[key];
-                    }
-                  }
-                }
-              }
-              console.log(`[Gemini NextGen API Request] URL: ${url}, Headers:`, JSON.stringify(loggedHeaders));
-              return originalFetch.call(this, url, fetchOptions);
-            };
-          }
-          return client;
-        };
-
-        aiClient = clientInstance;
-        lastApiKeyUsed = apiKey;
-        console.log("[Gemini API] Successfully instantiated and patched GoogleGenAI client.");
-      } finally {
-        // Restore the original environment variables so they remain available
-        process.env.GEMINI_API_KEY = originalEnvKey;
-        process.env.GEMINI_API_KEY_NEW = originalNewEnvKey;
-      }
+    if (!aiClient) {
+      aiClient = new OpenAI({ apiKey });
     }
     return aiClient;
-  }
-
-  // Helper function to retry Gemini requests on 503 (temporary high demand) and fall back to alternative models
-  async function generateContentWithRetry(
-    ai: GoogleGenAI,
-    params: {
-      model: string;
-      contents: any;
-      config?: any;
-    },
-    retries = 3,
-    delayMs = 1500
-  ): Promise<any> {
-    let attempt = 0;
-    let currentModel = params.model || 'gemini-1.5-flash';
-    const fallbackModels = ['gemini-1.5-flash', 'gemini-2.5-flash'];
-
-    while (true) {
-      try {
-        console.log(`Sending generateContent request to model: ${currentModel}`);
-        return await ai.models.generateContent({
-          model: currentModel,
-          contents: params.contents,
-          config: params.config,
-        });
-      } catch (error: any) {
-        attempt++;
-        const errorMessage = (error?.message || error?.toString() || "").toLowerCase();
-        const is503 = 
-          error?.status === 503 || 
-          error?.code === 503 || 
-          errorMessage.includes("503") || 
-          errorMessage.includes("unavailable") || 
-          errorMessage.includes("high demand") || 
-          errorMessage.includes("temporary");
-
-        console.warn(`Gemini API error on model ${currentModel} (attempt ${attempt}/${retries + 1}):`, error);
-
-        if (is503 && attempt <= retries) {
-          const backoff = delayMs * Math.pow(2, attempt - 1);
-          console.warn(`Model ${currentModel} is busy. Retrying in ${backoff}ms...`);
-          await new Promise((resolve) => setTimeout(resolve, backoff));
-          continue;
-        }
-
-        // If it still fails, let's try our fallback models instead of throwing immediately!
-        let switchedModel = false;
-        while (fallbackModels.length > 0) {
-          const nextModel = fallbackModels.shift();
-          if (nextModel && nextModel !== currentModel) {
-            console.warn(`Attempting fallback to model: ${nextModel}`);
-            currentModel = nextModel;
-            attempt = 0; // reset attempts for the fallback model
-            switchedModel = true;
-            break;
-          }
-        }
-
-        if (switchedModel) {
-          continue;
-        }
-
-        throw error;
-      }
-    }
   }
 
   // A robust body parsing middleware that handles both traditional Node and serverless (Vercel) pre-parsed bodies
@@ -558,6 +335,32 @@ try {
   // API Health Check Route
   app.get(["/api/health", "/health"], (req, res) => {
     res.json({ status: "ok", time: new Date().toISOString() });
+  });
+
+  // API Debug Route to safely check key presence and configuration
+  app.get(["/api/maya/debug", "/maya/debug"], (req, res) => {
+    const formatKey = (key: string | undefined) => {
+      if (!key) return "NOT_CONFIGURED";
+      if (key.trim() === "") return "EMPTY_STRING";
+      const clean = key.trim();
+      return `${clean.slice(0, 8)}...[length: ${clean.length}]...${clean.slice(-4)}`;
+    };
+
+    res.json({
+      environment: {
+        isVercel: !!process.env.VERCEL,
+        nodeEnv: process.env.NODE_ENV || "not_set",
+        time: new Date().toISOString()
+      },
+      keys: {
+        OPENAI_API_KEY: formatKey(process.env.OPENAI_API_KEY),
+        openai_env: formatKey(process.env.openai),
+        OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || "NOT_SET",
+        GEMINI_API_KEY: formatKey(process.env.GEMINI_API_KEY),
+        GEMINI_API_KEY_NEW: formatKey(process.env.GEMINI_API_KEY_NEW),
+        RESEND_API_KEY: formatKey(process.env.RESEND_API_KEY),
+      }
+    });
   });
 
   // Support GET /emails/:id, GET /api/emails/:id, and GET /v1/emails/:id to retrieve sent emails
