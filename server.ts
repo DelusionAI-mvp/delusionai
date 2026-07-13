@@ -5,7 +5,7 @@ import fs from "fs";
 import { Resend } from "resend";
 import OpenAI from "openai";
 
-// Ensure we load environment variables. First load standard .env if it exists. 
+// Ensure we load environment variables. First load standard .env if it exists.
 dotenv.config();
 
 // If standard .env is not present, or to supply defaults from .env.example, we load values
