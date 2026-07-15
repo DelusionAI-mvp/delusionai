@@ -313,7 +313,7 @@ const Root = () => {
       <Starfield />
       {(showNav || showPublicNav) && (
         <nav 
-          className={`fixed top-0 left-0 right-0 z-50 py-4 sm:py-6 border-b-4 border-brand-primary/20 bg-bg-base/80 backdrop-blur-md transition-all duration-300 ${
+          className={`fixed top-0 left-0 right-0 z-50 py-2 sm:py-3.5 border-b-4 border-brand-primary/20 bg-bg-base/80 backdrop-blur-md transition-all duration-300 ${
             showHeader ? 'translate-y-0' : '-translate-y-full'
           }`}
         >
@@ -403,7 +403,7 @@ const Root = () => {
                         {profile?.displayName?.split(' ')[0] || 'User'}
                       </p>
                       <p className="text-[8px] font-bold uppercase text-brand-accent tracking-widest leading-tight font-display">
-                        {profile?.isPremium ? 'PRO member' : 'Basic Member'}
+                        Verified Soul
                       </p>
                     </div>
                   </button>
@@ -438,7 +438,7 @@ const Root = () => {
         </nav>
       )}
 
-      <main className={`flex-1 flex flex-col ${(showNav || showPublicNav) ? 'pt-24 sm:pt-32' : ''} ${path.startsWith('/chat/') ? 'pb-0' : 'pb-36'} md:pb-0`}>
+      <main className={`flex-1 flex flex-col ${(showNav || showPublicNav) ? 'pt-[54px] sm:pt-[88px]' : ''} ${path.startsWith('/chat/') ? 'pb-0' : 'pb-36'} md:pb-0`}>
         <Outlet />
       </main>
 
@@ -767,8 +767,8 @@ export default function App() {
             }
           };
 
-          // Trigger email if not yet sent in this browser session
-          if (!hasTriggeredWelcomeInSession) {
+          // Trigger email ONLY for brand new signups (created in last 60 seconds) and not yet sent in this session
+          if (isNewAuthUser && !hasTriggeredWelcomeInSession) {
             sessionStorage.setItem(welcomeEmailSessionKey, 'true');
             shouldSendWelcome = true;
             emailToNotify = newProfile.email;
@@ -784,15 +784,6 @@ export default function App() {
         } else {
           const data = profileDoc.data() as UserProfile;
           
-          // Genuinely check if welcomeEmailSent is already marked as true
-          // If it is not true, and we haven't sent it in this browser session, send it!
-          if (data.welcomeEmailSent !== true && !hasTriggeredWelcomeInSession) {
-            sessionStorage.setItem(welcomeEmailSessionKey, 'true');
-            shouldSendWelcome = true;
-            emailToNotify = data.email || user.email || '';
-            nameToNotify = data.displayName || displayNameToUse || user.displayName || 'VIP Member';
-          }
-
           if (data.onboarded !== true) {
             // Existing user logged into pre-existing account: bypass pre-questions as requested
             const defaultEmotionalProfile = {
@@ -856,7 +847,7 @@ export default function App() {
                 // Dynamic warm welcome message tailored for the user
                 const welcomeMsg = {
                   role: 'assistant',
-                  content: `Hi ${data.displayName?.split(' ')[0] || 'there'}, I'm Maya. I'm here to listen, support you, and help you find peer connections who truly understand you. How have you been feeling lately?`
+                  content: `Hi hello, I'm Maya. I am a psychologist-like AI. I'm here to listen to your problems, understand your pain, and suggest the right companion who shares your mindset. How have you been feeling lately?`
                 };
 
                 // 1. Reset user daily metrics, messages limit used count and active cooldown in profile
