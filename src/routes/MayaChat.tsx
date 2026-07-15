@@ -45,17 +45,11 @@ export default function MayaChat() {
   const [showConnectionDetailModal, setShowConnectionDetailModal] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   
-  // State for toggling the Oasis Premium purchase and feature overview modal
-  const [showPremiumModal, setShowPremiumModal] = useState(false);
-  
-  // State to manage the display of the 4-hour countdown block for free-tier users
+  // State to manage the display of the 4-hour countdown block
   const [showCooldownModal, setShowCooldownModal] = useState(false);
 
   const [transitionVisible, setTransitionVisible] = useState(false);
   const [transitionMatch, setTransitionMatch] = useState<UserProfile | null>(null);
-  
-  // Premium simulation states
-  const [isProcessingUpgrade, setIsProcessingUpgrade] = useState(false);
 
   // Companion report compilation and dispatch states
   const [isSendingReport, setIsSendingReport] = useState(false);
@@ -303,26 +297,6 @@ export default function MayaChat() {
     }
   };
 
-  const handleUpgradeFromMaya = async () => {
-    if (!user) return;
-    setShowPremiumModal(false);
-    setIsProcessingUpgrade(true);
-    setTimeout(async () => {
-      try {
-        const userRef = doc(db, 'users', user.uid);
-        await updateDoc(userRef, { 
-          isPremium: true,
-          messagesUsed: 0,
-          cooldownEnd: null
-        });
-      } catch (err) {
-        console.error("Failed to upgrade during simulation:", err);
-      } finally {
-        setIsProcessingUpgrade(false);
-      }
-    }, 4200);
-  };
-
   // Custom states to address user instructions
   const [hasSentMessageThisSession, setHasSentMessageThisSession] = useState(false);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(true);
@@ -354,32 +328,76 @@ export default function MayaChat() {
   // Count the user messages exchanged during this active counselor session
   const userMessagesCount = messages.filter(m => m.role === 'user').length;
   
-  // Cooldown is active only for free-tier users if they exceed the max message limit or have a remaining timer
-  const isCooldownActive = !profile?.isPremium && (userMessagesCount >= maxExchanges || timeRemaining > 0);
+  // Cooldown is active if there is a remaining timer active, or we reached maxExchanges and Maya has responded to the last message
+  const hasMayaRepliedToLastMsg = messages.length > 0 && messages[messages.length - 1].role === 'assistant';
+  const isSessionEnded = userMessagesCount >= maxExchanges && hasMayaRepliedToLastMsg && !isTyping;
+  const isCooldownActive = timeRemaining > 0 || isSessionEnded;
   
   // The companion matching recommendation module shows up if they have finished the dialog or reached limits
   const isSessionCompleted = (hasSentMessageThisSession && userMessagesCount >= maxExchanges) || isCooldownActive;
 
   const [cooldownRemainingStr, setCooldownRemainingStr] = useState<string>('');
 
+  const resetSession = async () => {
+    if (!user) return;
+    try {
+      const convRef = doc(db, 'conversations_maya', user.uid);
+      const welcomeMsg: MayaMessage = { 
+        role: 'assistant', 
+        content: `Hi hello, I'm Maya. I am a psychologist-like AI. I'm here to listen to your problems, understand your pain, and suggest the right companion who shares your mindset. How have you been feeling lately?`
+      };
+      
+      await updateDoc(convRef, {
+        messages: [welcomeMsg],
+        lastUpdated: new Date().toISOString()
+      });
+      setMessages([welcomeMsg]);
+
+      const userRef = doc(db, 'users', user.uid);
+      const updates: any = {
+        messagesUsed: 0,
+        cooldownEnd: null,
+        updatedAt: new Date().toISOString()
+      };
+      if (profile?.recommendedUids && profile.recommendedUids.length > 0) {
+        updates.historicalRecommendedUids = arrayUnion(...profile.recommendedUids);
+      }
+      await updateDoc(userRef, updates);
+      localStorage.removeItem('maya_cooldown_end');
+      setTimeRemaining(0);
+    } catch (err) {
+      console.error("Error in resetSession:", err);
+    }
+  };
+
   useEffect(() => {
-    if (!profile?.isPremium && userMessagesCount >= maxExchanges && timeRemaining === 0) {
+    if (!user) return;
+    if (isSessionEnded && timeRemaining === 0) {
       const saved = localStorage.getItem('maya_cooldown_end');
       if (!saved) {
         const endTime = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(); // 4 hours
         localStorage.setItem('maya_cooldown_end', endTime);
         setTimeRemaining(14400); // 14400 seconds (4 hours)
         setShowCooldownModal(true);
+
+        // Sync with Firestore profile immediately so it is persisted
+        const userRef = doc(db, 'users', user.uid);
+        updateDoc(userRef, {
+          cooldownEnd: endTime,
+          updatedAt: new Date().toISOString()
+        }).catch(err => console.warn("Failed to save cooldownEnd in Firestore:", err));
       }
     }
-  }, [userMessagesCount, timeRemaining, profile?.isPremium, maxExchanges]);
+  }, [isSessionEnded, timeRemaining, user]);
 
   useEffect(() => {
+    if (!user) return;
     if (timeRemaining > 0) {
       const timer = setInterval(() => {
         setTimeRemaining(prev => {
           if (prev <= 1) {
             localStorage.removeItem('maya_cooldown_end');
+            resetSession();
             return 0;
           }
           return prev - 1;
@@ -387,14 +405,9 @@ export default function MayaChat() {
       }, 1000);
       return () => clearInterval(timer);
     }
-  }, [timeRemaining]);
+  }, [timeRemaining, user, profile]);
 
   const handleRefreshRecommendations = () => {
-    if (!profile?.isPremium && refreshCount >= 3) {
-      setShowPremiumModal(true);
-      return;
-    }
-
     setRefreshCount(prev => prev + 1);
     setIsRefreshing(true);
 
@@ -436,14 +449,31 @@ export default function MayaChat() {
   }, [profile?.cooldownEnd]);
 
   useEffect(() => {
-    if (profile?.cooldownEnd) {
+    if (!user || !profile) return;
+    
+    if (profile.cooldownEnd) {
       const remaining = Math.max(0, Math.ceil((new Date(profile.cooldownEnd).getTime() - Date.now()) / 1000));
       if (remaining > 0) {
         setTimeRemaining(remaining);
         localStorage.setItem('maya_cooldown_end', profile.cooldownEnd);
+      } else {
+        resetSession();
+      }
+    } else {
+      const saved = localStorage.getItem('maya_cooldown_end');
+      if (saved) {
+        const remaining = Math.max(0, Math.ceil((new Date(saved).getTime() - Date.now()) / 1000));
+        if (remaining > 0) {
+          setTimeRemaining(remaining);
+        } else {
+          localStorage.removeItem('maya_cooldown_end');
+          setTimeRemaining(0);
+        }
+      } else {
+        setTimeRemaining(0);
       }
     }
-  }, [profile?.cooldownEnd]);
+  }, [profile?.cooldownEnd, user, profile?.displayName]);
 
   useEffect(() => {
     if (isCooldownActive) {
@@ -480,7 +510,7 @@ export default function MayaChat() {
     hours = hours % 12;
     hours = hours ? hours : 12;
     const minutes = String(d.getMinutes()).padStart(2, '0');
-    return `You have reached your free limit. You can chat with Maya again at ${hours}:${minutes} ${ampm}.`;
+    return `You have completed your daily session with Maya. You can chat again at ${hours}:${minutes} ${ampm}.`;
   };
 
   const formatComebackTime = (dateStr?: string) => {
@@ -496,69 +526,7 @@ export default function MayaChat() {
     const activeUids = uids.filter(uid => !historical.includes(uid));
 
     const loadRecommendedProfiles = async () => {
-      setIsLoadingRecommendations(true);
-      try {
-        const queryUids = activeUids.slice(0, 10);
-        let resolvedProfiles: UserProfile[] = [];
-
-        if (queryUids.length > 0) {
-          const resolved = await Promise.all(queryUids.map(uid => getDoc(doc(db, 'users', uid))));
-          resolvedProfiles = resolved.map(d => d.exists() ? d.data() as UserProfile : null).filter((p): p is UserProfile => p !== null);
-        }
-
-        // --- FALLBACK TO GUARANTEE MATCHES AT ANY COST ---
-        if (resolvedProfiles.length === 0) {
-          try {
-            const snap = await getDocs(query(collection(db, 'users'), limit(40)));
-            resolvedProfiles = snap.docs
-              .map(d => d.data() as UserProfile)
-              .filter(u => u.uid !== user!.uid && u.displayName);
-            
-            resolvedProfiles.forEach(u => {
-              (u as any).isFallbackOnMount = true;
-            });
-          } catch (fbErr) {
-            console.warn("loadRecommendedProfiles fallback query failed:", fbErr);
-          }
-        }
-
-        // Absolute Failsafe: if still empty, fetch from MOCK_COMPANIONS
-        if (resolvedProfiles.length === 0) {
-          resolvedProfiles = [...MOCK_COMPANIONS].filter(u => u.uid !== user!.uid);
-        }
-
-        let conns: Connection[] = [];
-        try {
-          const connsSnap = await getDocs(query(collection(db, 'connections'), where('users', 'array-contains', user.uid)));
-          conns = connsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Connection));
-        } catch (connErr) {
-          console.warn("Could not query connections in loadRecommendedProfiles", connErr);
-        }
-
-        // Rank the loaded candidates using our authentic AIMatchmakingEngine
-        if (profile) {
-          resolvedProfiles = AIMatchmakingEngine.rankFirestoreCandidates(
-            profile,
-            resolvedProfiles,
-            conns,
-            []
-          );
-        }
-
-        // Adjust scores if they were fallback
-        resolvedProfiles.forEach(u => {
-          if ((u as any).isFallbackOnMount) {
-            u.matchScore = Math.max(30, Math.min(48, Math.floor((u.matchScore || 0) * 0.45)));
-          }
-        });
-
-        setAllRecommendations(resolvedProfiles);
-        setRecommendations(resolvedProfiles.slice(0, 3));
-      } catch (e) {
-        console.error("Error loading recommended profiles:", e);
-      } finally {
-        setIsLoadingRecommendations(false);
-      }
+      setIsLoadingRecommendations(false);
     };
     loadRecommendedProfiles();
   }, [profile?.recommendedUids, profile?.historicalRecommendedUids, user?.uid]);
@@ -620,7 +588,7 @@ export default function MayaChat() {
             const convRef = doc(db, 'conversations_maya', user.uid);
             const welcomeMsg: MayaMessage = { 
               role: 'assistant', 
-              content: `Hi ${profile?.displayName?.split(' ')[0] || 'there'}, I'm Maya. I am a psychologist-like AI. I'm here to listen to your problems, understand your pain, and suggest the right companion who shares your mindset. How have you been feeling lately?`
+              content: `Hi hello, I'm Maya. I am a psychologist-like AI. I'm here to listen to your problems, understand your pain, and suggest the right companion who shares your mindset. How have you been feeling lately?`
             };
             await setDoc(convRef, {
               userId: user.uid,
@@ -647,7 +615,7 @@ export default function MayaChat() {
     const unsub = onSnapshot(convRef, async (snap) => {
       const autoWelcome: MayaMessage = { 
         role: 'assistant', 
-        content: `Hi ${profile?.displayName?.split(' ')[0] || 'there'}, I'm Maya. I am a psychologist-like AI. I'm here to listen to your problems, understand your pain, and suggest the right companion who shares your mindset. How have you been feeling lately?`
+        content: `Hi hello, I'm Maya. I am a psychologist-like AI. I'm here to listen to your problems, understand your pain, and suggest the right companion who shares your mindset. How have you been feeling lately?`
       };
 
       if (snap.exists()) {
@@ -731,217 +699,8 @@ export default function MayaChat() {
   }, [user?.uid]);
 
   const fetchRecommendations = async (): Promise<number> => {
-    if (!user || !profile) return 0;
-    
-    let potentialUsers: UserProfile[] = [];
-    let activeConnsCount = 0;
-
-    setIsLoadingRecommendations(true);
-    try {
-      let conns: Connection[] = [];
-      try {
-        const connsSnap = await getDocs(query(collection(db, 'connections'), where('users', 'array-contains', user.uid)));
-        conns = connsSnap.docs.map(d => d.data() as Connection);
-      } catch (connErr) {
-        console.warn("Could not query connections in MayaChat, continuing with activeConns = empty: ", connErr);
-      }
-      
-      const activeConns = conns.filter(c => c.status === 'accepted' && (!c.removedBy || c.removedBy.length === 0));
-      activeConnsCount = activeConns.length;
-
-      const historicalRecommendedUids = profile.historicalRecommendedUids || [];
-      const connectedUids = conns.map(c => {
-        return c.users.find((id: string) => id !== user!.uid);
-      }).filter(Boolean) as string[];
-
-      // Targeted query for onboarded users, limited to 40 to save quota
-      try {
-        const q = query(
-          collection(db, 'users'),
-          where('onboarded', '==', true),
-          limit(40)
-        );
-        const snap = await getDocs(q);
-        
-        potentialUsers = snap.docs
-          .map(d => d.data() as UserProfile)
-          .filter(u => u.uid !== user!.uid && u.onboarded && u.displayName && !connectedUids.includes(u.uid) && !historicalRecommendedUids.includes(u.uid));
-
-        // Relaxed Fallback 1: If no fully-onboarded matching unconnected users are found, fetch other registered unconnected users
-        if (potentialUsers.length === 0) {
-          const qRelaxed = query(
-            collection(db, 'users'),
-            limit(40)
-          );
-          const snapRelaxed = await getDocs(qRelaxed);
-          potentialUsers = snapRelaxed.docs
-            .map(d => d.data() as UserProfile)
-            .filter(u => u.uid !== user!.uid && u.displayName && !connectedUids.includes(u.uid) && !historicalRecommendedUids.includes(u.uid));
-        }
-
-        // Relaxed Fallback 2: If we still don't have anyone, allow showing other registered unconnected users as recommendations (never show already connected ones)
-        if (potentialUsers.length === 0) {
-          const qRelaxed2 = query(
-            collection(db, 'users'),
-            limit(40)
-          );
-          const snapRelaxed2 = await getDocs(qRelaxed2);
-          potentialUsers = snapRelaxed2.docs
-            .map(d => d.data() as UserProfile)
-            .filter(u => u.uid !== user!.uid && u.displayName && !connectedUids.includes(u.uid) && !historicalRecommendedUids.includes(u.uid));
-        }
-
-        // Relaxed Fallback 3 (NEW / SHIFTED UP): If no users match unconnected/unrecommended, search ALL registered users excluding active user
-        if (potentialUsers.length === 0) {
-          const fallbackSnap = await getDocs(query(collection(db, 'users'), limit(40)));
-          potentialUsers = fallbackSnap.docs
-            .map(d => d.data() as UserProfile)
-            .filter(u => u.uid !== user!.uid && u.displayName);
-          
-          potentialUsers.forEach(u => {
-            (u as any).isFallback = true;
-          });
-        }
-
-        // Relaxed Fallback 4 (Absolute failsafe): If still empty, use MOCK_COMPANIONS to guarantee matchmaking list is populated
-        if (potentialUsers.length === 0) {
-          potentialUsers = [...MOCK_COMPANIONS].filter(u => u.uid !== user!.uid);
-          potentialUsers.forEach(u => {
-            (u as any).isFallback = true;
-          });
-        }
-      } catch (userQueryErr) {
-        console.warn("Firestore user query failed due to permissions or database status:", userQueryErr);
-        potentialUsers = [];
-      }
-
-      // Smart Sorting based on compatibility score formula:
-      const getMatchingScore = (p: UserProfile): number => {
-        const pEp = p.emotionalProfile;
-        
-        let score = 50; // Warm, supportive baseline compatibility (minimum 50%)
-
-        // 1. Emotional Similarity (Max +20%)
-        const userEmotionalTags = profile.emotionalProfile?.emotionalTags || profile.emotionalProfile?.moodKeywords || [];
-        const compEmotionalTags = pEp?.emotionalTags || pEp?.moodKeywords || [];
-        if (userEmotionalTags.length > 0 && compEmotionalTags.length > 0) {
-          const emotionalOverlap = userEmotionalTags.filter((t: string) => compEmotionalTags.includes(t)).length;
-          const maxTags = Math.max(userEmotionalTags.length, 1);
-          score += (emotionalOverlap / maxTags) * 20;
-        } else {
-          score += 5; // Steady base support
-        }
-
-        // 2. Shared Interests (Max +15%)
-        const userInterests = (profile.interests || profile.emotionalProfile?.interests || []) as string[];
-        const compInterests = (p.interests || pEp?.interests || []) as string[];
-        if (userInterests.length > 0 && compInterests.length > 0) {
-          const interestsOverlap = userInterests.filter((i: string) => compInterests.includes(i)).length;
-          const maxInterests = Math.max(userInterests.length, 1);
-          score += (interestsOverlap / maxInterests) * 15;
-        } else {
-          score += 5;
-        }
-
-        // 3. Personality & Traits Alignment (Max +10%)
-        const userTraits = (profile.emotionalProfile?.traits || []) as string[];
-        const compTraits = (pEp?.traits || []) as string[];
-        if (userTraits.length > 0 && compTraits.length > 0) {
-          const traitsOverlap = userTraits.filter((t: string) => compTraits.includes(t)).length;
-          const maxTraits = Math.max(userTraits.length, 1);
-          score += (traitsOverlap / maxTraits) * 10;
-        } else {
-          score += 3;
-        }
-
-        // 4. Life Stage / Age Compatibility (Max +25%) - Highly prioritized
-        const userAge = profile.age || profile.ageGroup || "";
-        const compAge = p.age || p.ageGroup || "";
-        if (userAge && compAge && userAge === compAge) {
-          score += 25;
-        } else {
-          score += 4;
-        }
-
-        return Math.round(Math.min(99, Math.max(60, score)));
-      };
-
-      // Assign calculated scores
-      potentialUsers.forEach(u => {
-        const rawScore = getMatchingScore(u);
-        if ((u as any).isFallback) {
-          u.matchScore = Math.max(30, Math.min(48, Math.floor(rawScore * 0.45)));
-        } else {
-          u.matchScore = rawScore;
-        }
-      });
-
-      // Sort: Prioritize new users first (joined in the last 15 days or has newer createdAt date), then by matchScore descending
-      potentialUsers.sort((a, b) => {
-        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-
-        const isNewA = a.createdAt ? (Date.now() - dateA < 15 * 24 * 60 * 60 * 1000) : false;
-        const isNewB = b.createdAt ? (Date.now() - dateB < 15 * 24 * 60 * 60 * 1000) : false;
-
-        if (isNewA && !isNewB) return -1;
-        if (!isNewA && isNewB) return 1;
-
-        if (dateA !== dateB) {
-          return dateB - dateA;
-        }
-
-        return (b.matchScore || 0) - (a.matchScore || 0);
-      });
-
-      // Must recommend from database: maximum of 3 profiles and minimum of 1 profile (as long as other users exist)
-      const countToTake = Math.min(3, Math.max(1, potentialUsers.length));
-      const docs = potentialUsers.slice(0, countToTake);
-      
-      // AUTO CONNECT LOGIC: Connect with the most similar candidate user if within connection limits
-  const isOverLimit = false;
-      if (potentialUsers.length > 0 && !isOverLimit) {
-        const mostSimilar = potentialUsers[0];
-        
-        try {
-          await addDoc(collection(db, 'connections'), {
-            users: [user.uid, mostSimilar.uid],
-            status: 'accepted',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            initiatorId: user.uid,
-            receiverId: mostSimilar.uid
-          });
-
-          // Skip email notification as Resend service has been removed
-          console.log("Auto connection established with", mostSimilar.displayName);
-        } catch (connCreateErr) {
-          console.warn("Could not auto-create connections document in MayaChat (probably permission restricted to other's match requests):", connCreateErr);
-        }
-      }
-      
-      if (docs.length > 0) {
-        setRecommendations(docs);
-        const validUids = docs.map(d => d.uid).filter(Boolean);
-        try {
-          await updateDoc(doc(db, 'users', user.uid), {
-            recommendedUids: validUids,
-            recommendationRefreshNeeded: false,
-            updatedAt: new Date().toISOString()
-          });
-        } catch (updateUserErr) {
-          console.warn("Could not save recommended UIDs to current user profile in Firestore (probably permission restricted):", updateUserErr);
-        }
-        return validUids.length;
-      }
-      return 0;
-    } catch (err) {
-      console.warn("Graceful fallback for fetchRecommendations inside catch block: ", err);
-      setRecommendations([]);
-      return 0;
-    } finally {
-      setIsLoadingRecommendations(false);
-    }
+    setIsLoadingRecommendations(false);
+    return 0;
   };
 
   const handleSend = async (e?: React.FormEvent) => {
@@ -1131,7 +890,7 @@ export default function MayaChat() {
   const clearChat = async () => {
     if (!user || isRefreshing) return;
     if (isCooldownActive) {
-      alert(`Chatbot is currently cooling down. Cooldown remaining: ${cooldownRemainingStr}. Choose Premium for unlimited chat!`);
+      alert(`Chatbot is currently cooling down. Cooldown remaining: ${cooldownRemainingStr}.`);
       return;
     }
     setIsRefreshing(true);
@@ -1139,7 +898,7 @@ export default function MayaChat() {
       const convRef = doc(db, 'conversations_maya', user.uid);
       const manualWelcomeMsg = { 
         role: 'assistant', 
-        content: `Hi ${profile?.displayName?.split(' ')[0] || 'there'}, I'm Maya. I am a psychologist-like AI. I'm here to listen to your problems, understand your pain, and suggest the right companion who shares your mindset. How have you been feeling lately?`
+        content: `Hi hello, I'm Maya. I am a psychologist-like AI. I'm here to listen to your problems, understand your pain, and suggest the right companion who shares your mindset. How have you been feeling lately?`
       } as MayaMessage;
       await updateDoc(convRef, {
         messages: [manualWelcomeMsg],
@@ -1306,129 +1065,7 @@ export default function MayaChat() {
               </motion.div>
             ))}
 
-            {false ? (
-              isLoadingRecommendations ? (
-                <div className="flex items-center gap-3 justify-center py-6">
-                  <span className="w-1.5 h-1.5 rounded-full bg-brand-primary animate-ping" />
-                  <span className="text-[10px] text-brand-primary font-black uppercase tracking-[0.2em] animate-pulse">
-                    Searching database soul matches...
-                  </span>
-                </div>
-              ) : recommendations.length > 0 ? (
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="space-y-6 pt-6 sm:pt-10 max-w-xl text-left"
-                  onMouseEnter={() => handleModuleFocus('recommendations')}
-                >
-                  <div className="flex items-center justify-between gap-4 w-full border-b border-brand-primary/10 pb-3">
-                    <div className="flex items-center gap-2 text-brand-primary/80">
-                      <Sparkles size={16} className="text-brand-primary animate-pulse" />
-                      <h3 className="font-sans font-light tracking-[0.1em] text-xs sm:text-sm text-brand-primary uppercase">Handpicked Matches</h3>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleRefreshRecommendations}
-                      disabled={isRefreshing}
-                      className="flex items-center gap-1.5 px-3 py-1 bg-brand-primary/5 hover:bg-brand-primary/10 border border-brand-primary/25 hover:border-brand-primary text-[10px] font-sans font-light tracking-wide text-brand-primary uppercase rounded-full transition-all disabled:opacity-40 cursor-pointer active:scale-95"
-                    >
-                      <RefreshCw size={10} className={`${isRefreshing ? 'animate-spin' : ''}`} />
-                      Refresh ({3 - refreshCount} left)
-                    </button>
-                  </div>
-                  
-                  <div className="grid grid-cols-3 gap-3 md:gap-4">
-                    {recommendations.slice(0, 3).map((peer, idx) => {
-                      const matchPercent = (peer as any).matchScore || (98 - idx * 4);
-                      return (
-                        <div
-                          key={peer.uid}
-                          className="cred-elevation p-3 sm:p-4 text-center space-y-3 relative border-t-2 border-t-brand-primary/50 hover:border-t-brand-primary bg-bg-card rounded-2xl group transition-all flex flex-col justify-between"
-                        >
-                          <div className="space-y-3">
-                            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full overflow-hidden border border-brand-primary/10 flex items-center justify-center bg-bg-base flex-shrink-0 mx-auto">
-                              {peer.photoURL ? (
-                                <img src={peer.photoURL} className="w-full h-full object-cover" alt="" referrerPolicy="no-referrer" />
-                              ) : (
-                                <UserIcon size={16} className="text-brand-primary/40" />
-                              )}
-                            </div>
-                            <div>
-                              <p className="font-sans font-light text-xs sm:text-sm text-text-base truncate">
-                                {peer.displayName?.split(' ')[0]}
-                              </p>
-                              <p className="text-[10px] text-brand-primary font-sans font-light uppercase tracking-wide mt-0.5">
-                                {matchPercent}% Match
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-center gap-1.5 pt-1.5">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                sessionStorage.setItem('viewProfileUid', peer.uid);
-                                navigate({ to: '/dashboard' });
-                              }}
-                              className="cred-inset px-2 py-1 text-[10px] font-sans font-light uppercase tracking-wide text-text-muted hover:text-brand-primary hover:border-brand-primary/20 transition-all cursor-pointer rounded-lg bg-transparent border border-transparent"
-                            >
-                              View
-                            </button>
-                            <button
-                              type="button"
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                if (!user) return;
-                                // Trigger transition!
-                                setTransitionMatch(peer);
-                                setTransitionVisible(true);
-
-                                // Connect logic
-                                try {
-                                  await addDoc(collection(db, 'connections'), {
-                                    users: [user.uid, peer.uid],
-                                    status: 'pending',
-                                    createdAt: new Date().toISOString(),
-                                    updatedAt: new Date().toISOString(),
-                                    initiatorId: user.uid,
-                                    receiverId: peer.uid
-                                  });
-                                  
-                                  await createNotification(peer.uid, {
-                                    text: `${profile?.displayName || 'Someone'} sent you a connection request!`,
-                                    type: 'request',
-                                    senderId: user.uid,
-                                    senderName: profile?.displayName || 'Anonymous',
-                                    connectionId: ''
-                                  });
-                                } catch (err) {
-                                  console.error("Direct connection error in chatbot", err);
-                                }
-                              }}
-                              className="btn-primary w-6 h-6 rounded-lg flex items-center justify-center p-0 flex-shrink-0 cursor-pointer"
-                              title="Connect"
-                            >
-                              <Check size={11} />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <p className="text-[8px] sm:text-[9.5px] text-text-muted text-center font-bold uppercase tracking-[0.18em] animate-pulse">
-                    Hover/move cursor to cycle choices • Click to view in Match circle
-                  </p>
-                </motion.div>
-              ) : (
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="cred-inset p-8 text-center text-text-muted font-normal uppercase tracking-widest text-[11px] max-w-xl mt-6 rounded-2xl"
-                >
-                  No match found.
-                </motion.div>
-              )
-            ) : null}
+            {/* Recommendation block completely removed based on user request */}
           </AnimatePresence>
 
           {/* isAnalyzing progress block removed based on user request */}
@@ -1573,16 +1210,9 @@ export default function MayaChat() {
               <div className="flex items-center gap-2">
                 <Lock size={12} className="text-brand-accent shrink-0 animate-pulse" />
                 <span className="text-[10px] sm:text-[11px] font-bold text-brand-accent uppercase tracking-wider">
-                  Your free trial has ended and will resume after {getFormattedUnlockTime()}
+                  We have completed our evaluation session today. To ensure a therapeutic pause, further chat is locked. You can resume at {getFormattedUnlockTime()}
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowPremiumModal(true)}
-                className="px-3 py-1.5 text-[8.5px] font-black uppercase tracking-widest text-brand-primary bg-brand-primary/10 hover:bg-brand-primary/20 border border-brand-primary/20 hover:border-brand-primary transition-all rounded-lg select-none cursor-pointer"
-              >
-                Upgrade to Premium
-              </button>
             </motion.div>
           )}
 
@@ -1627,14 +1257,14 @@ export default function MayaChat() {
               </div>
               
               <div className="space-y-3">
-                <h2 className="text-xl md:text-2xl font-display font-black uppercase tracking-tight italic text-text-base leading-tight">Evaluation Cooldown</h2>
+                <h2 className="text-xl md:text-2xl font-display font-black uppercase tracking-tight italic text-text-base leading-tight">Therapeutic Pause</h2>
                 <p className="text-text-muted font-bold uppercase tracking-[0.12em] text-[10px] leading-loose">
-                  You have reached your daily conversational exchange threshold. Maya has completed your emotional mapping and encourages you to take a mindful rest.
+                  We have completed our evaluation session today. Please take some time to reflect and integrate our therapeutic insights. Maya will be ready to resume after the 4-hour therapeutic pause.
                 </p>
                 
                 {/* Dynamically countdown from 4 hours */}
                 <div className="p-4 bg-brand-primary/5 border border-brand-primary/10 rounded-2xl">
-                  <div className="text-[10px] text-text-muted font-black uppercase tracking-wider mb-1">Mindful Pause Timer</div>
+                  <div className="text-[10px] text-text-muted font-black uppercase tracking-wider mb-1">Therapeutic Pause Countdown</div>
                   <div className="text-xl font-mono font-black text-brand-primary tracking-widest animate-pulse">
                     {timeRemaining > 0 
                       ? `${String(Math.floor(timeRemaining / 3600)).padStart(2, '0')}:${String(Math.floor((timeRemaining % 3600) / 60)).padStart(2, '0')}:${String(timeRemaining % 60).padStart(2, '0')}`
@@ -1642,12 +1272,12 @@ export default function MayaChat() {
                   </div>
                   {getUnlockTimeStr() && (
                     <div className="text-[10px] text-text-muted mt-2 uppercase tracking-wide">
-                      Can chat again at: <strong className="text-brand-primary font-mono">{getUnlockTimeStr()}</strong>
+                      We can resume our session at: <strong className="text-brand-primary font-mono">{getUnlockTimeStr()}</strong>
                     </div>
                   )}
                 </div>
 
-                {!profile?.isPremium && (
+                {true && (
                   <div className={`mt-4 p-4 rounded-xl border text-left space-y-2 relative overflow-hidden transition-all duration-300
                     ${reportResult?.status === 'success' 
                       ? 'border-emerald-500/25 bg-emerald-500/[0.03] text-emerald-500' 
@@ -1872,11 +1502,6 @@ export default function MayaChat() {
           setTransitionVisible(false);
           setTransitionMatch(null);
         }}
-      />
-
-      <TransactionOverlay 
-        isVisible={isProcessingUpgrade} 
-        type="premium_upgrade"
       />
 
       {/* Floating Pop-out Feedback Modal */}
@@ -2117,71 +1742,6 @@ export default function MayaChat() {
       </AnimatePresence>
 
       {/* Premium Upgrade Modal */}
-      <AnimatePresence>
-        {showPremiumModal && (
-          <div className="fixed inset-0 z-[140] flex items-center justify-center p-6 bg-bg-base/80 backdrop-blur-xl">
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="cred-elevation max-w-lg w-full p-8 md:p-12 space-y-8 text-center relative overflow-hidden"
-            >
-              <div className="absolute top-0 left-0 w-full h-1 bg-brand-primary"></div>
-              
-              <div className="w-16 h-16 cred-inset flex items-center justify-center mx-auto text-brand-primary relative">
-                <Sparkles size={32} className="text-brand-primary animate-pulse" />
-                <div className="absolute inset-0 bg-brand-primary/10 rounded-full animate-pulse"></div>
-              </div>
-              
-              <div className="space-y-3 text-left">
-                <h2 className="text-xl md:text-2xl font-display font-black uppercase tracking-tight italic text-text-base leading-tight text-center">Upgrade to Oasis Premium</h2>
-                <p className="text-text-muted font-bold uppercase tracking-[0.12em] text-[10px] leading-loose text-center">
-                  Unlock unlimited psychological counseling with Maya, instant peer matching, and priority wellness reports delivered to your inbox.
-                </p>
-                
-                <div className="space-y-3 text-left py-4">
-                  <div className="flex items-start gap-2 text-xs text-text-base font-medium">
-                    <Check size={14} className="text-emerald-500 shrink-0 mt-0.5" />
-                    <span><strong>Unlimited Conversational Mapping:</strong> Chat as long as you want without message thresholds or daily limits.</span>
-                  </div>
-                  <div className="flex items-start gap-2 text-xs text-text-base font-medium">
-                    <Check size={14} className="text-emerald-500 shrink-0 mt-0.5" />
-                    <span><strong>Priority Peer Compatibility Insight:</strong> Instant, deep-compatibility peer connections matching your mental state.</span>
-                  </div>
-                  <div className="flex items-start gap-2 text-xs text-text-base font-medium">
-                    <Check size={14} className="text-emerald-500 shrink-0 mt-0.5" />
-                    <span><strong>On-Demand Deep Reflection Reports:</strong> Synthesis of your mindset dispatched directly to your email whenever you request.</span>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-brand-primary/5 border border-brand-primary/10 rounded-2xl text-center">
-                  <span className="text-xs font-mono font-black text-brand-primary tracking-widest">
-                    ONLY $9.99 / MONTH
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowPremiumModal(false)}
-                  className="btn-secondary flex-1 py-3 text-[10px] font-black uppercase tracking-widest border border-brand-primary/10 hover:border-brand-primary/30 transition-colors cursor-pointer"
-                >
-                  Keep Free Tier
-                </button>
-                <button
-                  type="button"
-                  onClick={handleUpgradeFromMaya}
-                  className="btn-primary flex-1 py-3 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <Sparkles size={12} />
-                  <span>Upgrade Now</span>
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
