@@ -1,20 +1,14 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import React from 'react';
+import { motion } from 'motion/react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { MessageCircle, Users, ShieldCheck, Mail, Send, Sparkles, Linkedin, Instagram } from 'lucide-react';
+import { MessageCircle, Users, ShieldCheck, Sparkles, Linkedin, Instagram } from 'lucide-react';
 import { useAuth } from '../App';
-import { addDoc, collection } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { Logo } from '../components/Logo';
 import { AboutSection } from '../components/AboutSection';
 
 export default function LandingPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [showWaitlist, setShowWaitlist] = useState(false);
-  const [waitlistSuccess, setWaitlistSuccess] = useState(false);
-  const [waitlistData, setWaitlistData] = useState({ name: '', email: '' });
-  const [submitting, setSubmitting] = useState(false);
   
   React.useEffect(() => {
     if (user) {
@@ -23,27 +17,6 @@ export default function LandingPage() {
   }, [user, navigate]);
 
   if (user) return null;
-
-  const handleWaitlist = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    try {
-      await addDoc(collection(db, 'waitlist'), {
-        ...waitlistData,
-        submittedAt: new Date().toISOString()
-      });
-      setWaitlistSuccess(true);
-      setTimeout(() => {
-        setShowWaitlist(false);
-        setWaitlistSuccess(false);
-        setWaitlistData({ name: '', email: '' });
-      }, 3000);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   return (
     <div className="page-base relative overflow-hidden">
@@ -76,10 +49,10 @@ export default function LandingPage() {
 
         <div className="pt-2 md:pt-4 flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 px-4">
           <button 
-            onClick={() => setShowWaitlist(true)}
+            onClick={() => navigate({ to: '/auth' })}
             className="btn-get-started w-full sm:w-auto"
           >
-            <span>Join Waitlist</span>
+            <span>Get Started</span>
           </button>
         </div>
 
@@ -128,77 +101,6 @@ export default function LandingPage() {
         </div>
       </div>
     </div>
-
-      <AnimatePresence>
-        {showWaitlist && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-bg-base/90 backdrop-blur-xl">
-            <motion.div 
-               initial={{ scale: 0.9, opacity: 0 }}
-               animate={{ scale: 1, opacity: 1 }}
-               exit={{ scale: 0.9, opacity: 0 }}
-               className="w-full max-w-md cred-elevation p-6 sm:p-10 md:p-12 space-y-6 sm:space-y-10 text-left"
-            >
-              <div className="space-y-3 sm:space-y-4">
-                <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tight italic">Join Us</h2>
-                <p className="text-[10px] sm:text-xs text-text-muted font-bold uppercase tracking-[0.2em]">Sign up for our early access list.</p>
-              </div>
-
-              {waitlistSuccess ? (
-                <div className="cred-inset p-6 sm:p-10 text-center space-y-4 border-2 border-brand-primary/20">
-                  <div className="w-12 h-12 bg-brand-primary/20 rounded-full flex items-center justify-center mx-auto text-brand-primary shadow-[0_0_15px_rgba(61,90,254,0.3)]">
-                    <Send size={24} />
-                  </div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-primary">You're on the list!</p>
-                </div>
-              ) : (
-                <form onSubmit={handleWaitlist} className="space-y-6">
-                  <div className="space-y-3">
-                    <label className="text-[9px] font-black uppercase tracking-[0.3em] text-text-muted ml-1">Name</label>
-                    <input 
-                      type="text" 
-                      required
-                      placeholder="Your Name"
-                      className="input-base"
-                      value={waitlistData.name}
-                      onChange={e => setWaitlistData(prev => ({ ...prev, name: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-3">
-                    <label className="text-[9px] font-black uppercase tracking-[0.3em] text-text-muted ml-1">Email Address</label>
-                    <div className="relative">
-                      <input 
-                         type="email" 
-                         required
-                         placeholder="email@example.com"
-                         className="input-base pl-12"
-                         value={waitlistData.email}
-                         onChange={e => setWaitlistData(prev => ({ ...prev, email: e.target.value }))}
-                      />
-                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-700" size={18} />
-                    </div>
-                  </div>
-                  <div className="flex gap-4 pt-4">
-                    <button 
-                      type="button" 
-                      onClick={() => setShowWaitlist(false)}
-                      className="flex-1 btn-secondary text-[10px]"
-                    >
-                      Cancel
-                    </button>
-                    <button 
-                      type="submit" 
-                      disabled={submitting}
-                      className="flex-[2] btn-primary py-4 text-[10px] flex items-center justify-center gap-2"
-                    >
-                      {submitting ? 'Submitting...' : 'Join Now'}
-                    </button>
-                  </div>
-                </form>
-              )}
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* Footer */}
       <footer className="w-full border-t border-black/5 mt-auto bg-bg-base/50 pt-8 pb-6">
